@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+model User {
+  id           String   @id @default(cuid())
+  name         String?
+  email        String   @unique
+  passwordHash String?
+  plan         String   @default("free")
+  role         String   @default("user")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  settings       UserSettings?
+  optimizations  Optimization[]
+  feedback       Feedback[]
+  apiKeys        ApiKey[]
+  curationReviews CurationReview[]
+}
+
+model UserSettings {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  preferredModel      String   @default("GPT-4.1 / GPT-5 style")
+  optimizationDepth   String   @default("Balanced")
+  defaultGoal         String   @default("More structured")
+  outputFormat        String   @default("Detailed explanation")
+  personalStyle       String?
+  discoveryFocus      String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Optimization {
+  id             String   @id @default(cuid())
+  userId         String?
+  originalPrompt String
+  improvedPrompt String
+  category       String   @default("General")
+  model          String   @default("GPT-4.1 / GPT-5 style")
+  goal           String   @default("More structured")
+  depth          String   @default("Balanced")
+  outputFormat   String   @default("Detailed explanation")
+  originalScore  Int      @default(0)
+  improvedScore  Int      @default(0)
+  engineStatus   String   @default("mock_api")
+  createdAt      DateTime @default(now())
+
+  user     User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  feedback Feedback[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([createdAt])
+}
+
+model Feedback {
+  id             String   @id @default(cuid())
+  userId         String?
+  optimizationId String?
+  rating         String
+  comment        String?
+  originalPrompt String
+  improvedPrompt String
+  category       String   @default("General")
+  model          String   @default("GPT-4.1 / GPT-5 style")
+  goal           String   @default("More structured")
+  depth          String   @default("Balanced")
+  outputFormat   String   @default("Detailed explanation")
+  engineStatus   String   @default("mock_api")
+  createdAt      DateTime @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  optimization Optimization? @relation(fields: [optimizationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([optimizationId])
+  @@index([rating])
+  @@index([createdAt])
+}
+
+model Source {
+  id               String   @id @default(cuid())
+  name             String
+  type             String
+  url              String?
+  credibilityScore Int      @default(0)
+  status           String   @default("active")
+  lastScanAt       DateTime?
+  scanFrequency    String   @default("manual")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  discoveredPrompts DiscoveredPrompt[]
+
+  @@index([type])
+  @@index([status])
+}
+
+model DiscoveredPrompt {
+  id           String   @id @default(cuid())
+  sourceId     String?
+  title        String
+  prompt       String
+  category     String   @default("General")
+  model        String   @default("General")
+  qualityScore Int      @default(0)
+  sourceUrl    String?
+  status       String   @default("pending")
+  discoveredAt DateTime @default(now())
+
+  source          Source?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  curationReviews CurationReview[]
+
+  @@index([sourceId])
+  @@index([category])
+  @@index([status])
+  @@index([discoveredAt])
+}
+
+model CurationReview {
+  id                 String   @id @default(cuid())
+  discoveredPromptId String
+  reviewerId         String?
+  status             String
+  riskLevel          String   @default("low")
+  reviewReason       String?
+  createdAt          DateTime @default(now())
+
+  discoveredPrompt DiscoveredPrompt @relation(fields: [discoveredPromptId], references: [id], onDelete: Cascade)
+  reviewer         User?            @relation(fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([discoveredPromptId])
+  @@index([reviewerId])
+  @@index([status])
+}
+
+model CorpusPrompt {
+  id              String   @id @default(cuid())
+  title           String
+  prompt          String
+  improvedVersion String?
+  category        String   @default("General")
+  model           String   @default("General")
+  qualityScore    Int      @default(0)
+  patterns        String?
+  metadata        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trainingSignals TrainingSignal[]
+
+  @@index([category])
+  @@index([model])
+  @@index([qualityScore])
+}
+
+model TrainingSignal {
+  id         String   @id @default(cuid())
+  sourceType String
+  sourceId   String?
+  corpusId   String?
+  signalType String
+  score      Int      @default(0)
+  metadata   String?
+  createdAt  DateTime @default(now())
+
+  corpus CorpusPrompt? @relation(fields: [corpusId], references: [id], onDelete: SetNull)
+
+  @@index([sourceType])
+  @@index([signalType])
+  @@index([corpusId])
+}
+
+model ApiKey {
+  id         String   @id @default(cuid())
+  userId     String
+  keyHash    String
+  label      String?
+  usageLimit Int      @default(1000)
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
