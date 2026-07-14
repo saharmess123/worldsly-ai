@@ -31,7 +31,8 @@ function formatOptimizationItem(item: {
     scoreGain: item.improvedScore - item.originalScore,
     engineStatus: item.engineStatus,
     mode: item.engineStatus === "real_ai" ? "real" : "mock",
-    aiProvider: item.engineStatus === "real_ai" ? "openai" : "mock",
+    aiProvider:
+      item.engineStatus === "real_ai" ? "openai" : "mock",
     storageMode: "sqlite_prisma",
     createdAt: item.createdAt.toLocaleString(),
   };
@@ -62,7 +63,8 @@ function formatFeedbackItem(item: {
     outputFormat: item.outputFormat,
     engineStatus: item.engineStatus,
     mode: item.engineStatus === "real_ai" ? "real" : "mock",
-    aiProvider: item.engineStatus === "real_ai" ? "openai" : "mock",
+    aiProvider:
+      item.engineStatus === "real_ai" ? "openai" : "mock",
     storageMode: "sqlite_prisma",
     createdAt: item.createdAt.toLocaleString(),
   };
@@ -73,7 +75,10 @@ function calculateAverage(values: number[]) {
     return 0;
   }
 
-  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+  return Math.round(
+    values.reduce((sum, value) => sum + value, 0) /
+      values.length
+  );
 }
 
 export async function GET() {
@@ -86,6 +91,25 @@ export async function GET() {
       usefulFeedback,
       needsWorkFeedback,
       allOptimizationScores,
+
+      totalSources,
+      activeSources,
+      pausedSources,
+      archivedSources,
+
+      totalDiscoveredPrompts,
+      pendingDiscoveredPrompts,
+      curationQueueCount,
+      approvedDiscoveredPrompts,
+      rejectedDiscoveredPrompts,
+
+      totalCurationReviews,
+      approvedCurationReviews,
+      rejectedCurationReviews,
+      riskyCurationReviews,
+
+      totalCorpusPrompts,
+      totalTrainingSignals,
     ] = await Promise.all([
       prisma.optimization.findMany({
         orderBy: {
@@ -123,6 +147,76 @@ export async function GET() {
           improvedScore: true,
         },
       }),
+
+      prisma.source.count(),
+
+      prisma.source.count({
+        where: {
+          status: "active",
+        },
+      }),
+
+      prisma.source.count({
+        where: {
+          status: "paused",
+        },
+      }),
+
+      prisma.source.count({
+        where: {
+          status: "archived",
+        },
+      }),
+
+      prisma.discoveredPrompt.count(),
+
+      prisma.discoveredPrompt.count({
+        where: {
+          status: "pending",
+        },
+      }),
+
+      prisma.discoveredPrompt.count({
+        where: {
+          status: "sent_to_curation",
+        },
+      }),
+
+      prisma.discoveredPrompt.count({
+        where: {
+          status: "approved",
+        },
+      }),
+
+      prisma.discoveredPrompt.count({
+        where: {
+          status: "rejected",
+        },
+      }),
+
+      prisma.curationReview.count(),
+
+      prisma.curationReview.count({
+        where: {
+          status: "approved",
+        },
+      }),
+
+      prisma.curationReview.count({
+        where: {
+          status: "rejected",
+        },
+      }),
+
+      prisma.curationReview.count({
+        where: {
+          status: "risky",
+        },
+      }),
+
+      prisma.corpusPrompt.count(),
+
+      prisma.trainingSignal.count(),
     ]);
 
     const originalScores = allOptimizationScores.map(
@@ -134,28 +228,59 @@ export async function GET() {
     );
 
     const scoreGains = allOptimizationScores.map(
-      (item: { originalScore: number; improvedScore: number }) => item.improvedScore - item.originalScore
+      (item: { originalScore: number; improvedScore: number }) =>
+        item.improvedScore - item.originalScore
     );
 
-    const averageOriginalScore = calculateAverage(originalScores);
-    const averageImprovedScore = calculateAverage(improvedScores);
-    const averageScoreGain = calculateAverage(scoreGains);
+    const averageOriginalScore =
+      calculateAverage(originalScores);
+
+    const averageImprovedScore =
+      calculateAverage(improvedScores);
+
+    const averageScoreGain =
+      calculateAverage(scoreGains);
 
     const usefulRate =
       totalFeedback === 0
         ? 0
-        : Math.round((usefulFeedback / totalFeedback) * 100);
+        : Math.round(
+            (usefulFeedback / totalFeedback) * 100
+          );
 
-    const latestOptimizations = latestOptimizationsRaw.map(
-      formatOptimizationItem
-    );
+    const latestOptimizations =
+      latestOptimizationsRaw.map(
+        formatOptimizationItem
+      );
 
-    const latestFeedback = latestFeedbackRaw.map(formatFeedbackItem);
+    const latestFeedback =
+      latestFeedbackRaw.map(
+        formatFeedbackItem
+      );
+
+    const discoveryApprovalRate =
+      totalDiscoveredPrompts === 0
+        ? 0
+        : Math.round(
+            (approvedDiscoveredPrompts /
+              totalDiscoveredPrompts) *
+              100
+          );
+
+    const discoveryRejectionRate =
+      totalDiscoveredPrompts === 0
+        ? 0
+        : Math.round(
+            (rejectedDiscoveredPrompts /
+              totalDiscoveredPrompts) *
+              100
+          );
 
     return NextResponse.json({
       success: true,
       storageMode: "sqlite_prisma",
-      message: "Analytics loaded successfully from SQLite using Prisma.",
+      message:
+        "Analytics loaded successfully from SQLite using Prisma.",
 
       totalOptimizations,
       totalFeedback,
@@ -166,6 +291,28 @@ export async function GET() {
       averageOriginalScore,
       averageImprovedScore,
       averageScoreGain,
+
+      totalSources,
+      activeSources,
+      pausedSources,
+      archivedSources,
+
+      totalDiscoveredPrompts,
+      pendingDiscoveredPrompts,
+      curationQueueCount,
+      approvedDiscoveredPrompts,
+      rejectedDiscoveredPrompts,
+
+      totalCurationReviews,
+      approvedCurationReviews,
+      rejectedCurationReviews,
+      riskyCurationReviews,
+
+      totalCorpusPrompts,
+      totalTrainingSignals,
+
+      discoveryApprovalRate,
+      discoveryRejectionRate,
 
       totals: {
         totalOptimizations,
@@ -181,26 +328,78 @@ export async function GET() {
         averageScoreGain,
       },
 
+      sources: {
+        total: totalSources,
+        active: activeSources,
+        paused: pausedSources,
+        archived: archivedSources,
+      },
+
+      discovery: {
+        total: totalDiscoveredPrompts,
+        pending: pendingDiscoveredPrompts,
+        sentToCuration: curationQueueCount,
+        approved: approvedDiscoveredPrompts,
+        rejected: rejectedDiscoveredPrompts,
+        approvalRate:
+          discoveryApprovalRate,
+        rejectionRate:
+          discoveryRejectionRate,
+      },
+
+      curation: {
+        totalReviews: totalCurationReviews,
+        approved: approvedCurationReviews,
+        rejected: rejectedCurationReviews,
+        risky: riskyCurationReviews,
+      },
+
+      corpus: {
+        total: totalCorpusPrompts,
+      },
+
+      training: {
+        totalSignals: totalTrainingSignals,
+      },
+
       latestOptimizations,
       latestFeedback,
 
       summary: {
-        hasOptimizations: totalOptimizations > 0,
+        hasOptimizations:
+          totalOptimizations > 0,
         hasFeedback: totalFeedback > 0,
-        latestOptimizationCount: latestOptimizations.length,
-        latestFeedbackCount: latestFeedback.length,
+        hasSources: totalSources > 0,
+        hasDiscoveredPrompts:
+          totalDiscoveredPrompts > 0,
+        hasCurationReviews:
+          totalCurationReviews > 0,
+        hasCorpusPrompts:
+          totalCorpusPrompts > 0,
+        hasTrainingSignals:
+          totalTrainingSignals > 0,
+        latestOptimizationCount:
+          latestOptimizations.length,
+        latestFeedbackCount:
+          latestFeedback.length,
       },
     });
   } catch (error) {
-    console.error("Analytics GET error:", error);
+    console.error(
+      "Analytics GET error:",
+      error
+    );
 
     return NextResponse.json(
       {
         success: false,
-        error: "Something went wrong while loading analytics.",
+        error:
+          "Something went wrong while loading analytics.",
         storageMode: "sqlite_prisma",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
