@@ -3,11 +3,6 @@
 import { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 
-"use client";
-
-import { useEffect, useState } from "react";
-import Navbar from "../components/Navbar";
-
 export default function PromptGeneratorPage() {
   const [category, setCategory] = useState("Business");
   const [task, setTask] = useState("");

@@ -3,393 +3,289 @@
 import { useEffect, useMemo, useState } from "react";
 import Navbar from "../components/Navbar";
 
-type HistoryItem = {
-  id: number;
-  tool: string;
-  output: string;
+type TrainingSignal = {
+  id: string;
+  sourceType: string;
+  sourceId: string | null;
+  corpusId: string | null;
+  signalType: string;
+  score: number;
+  metadata: any;
   createdAt: string;
+  corpus: { title: string } | null;
 };
 
-type FeedbackItem = {
-  id: number;
-  rating: "useful" | "needs_work";
-  originalPrompt: string;
-  improvedPrompt: string;
-  category: string;
-  model: string;
-  goal: string;
-  depth: string;
-  outputFormat: string;
-  createdAt: string;
-};
-
-const trainingStages = [
-  {
-    title: "Prompt Collection",
-    description:
-      "Collects optimized prompts, curated library examples, and discovered high-performing prompt patterns.",
-    icon: "📥",
-    status: "Active",
-  },
-  {
-    title: "Metadata Enrichment",
-    description:
-      "Adds category, model, score, use case, feedback rating, patterns, and output format.",
-    icon: "🏷️",
-    status: "MVP",
-  },
-  {
-    title: "Preference Signals",
-    description:
-      "Uses thumbs up/down feedback to understand which prompt improvements are preferred.",
-    icon: "👍",
-    status: "Active",
-  },
-  {
-    title: "Synthetic Data",
-    description:
-      "Generates additional training examples by creating weak prompt and improved prompt pairs.",
-    icon: "🧪",
-    status: "Planned",
-  },
-  {
-    title: "PromptMaster Training",
-    description:
-      "Future model training layer for supervised fine-tuning and preference optimization.",
-    icon: "🧠",
-    status: "Planned",
-  },
-];
-
-const modelSignals = [
-  {
-    name: "Role Definition",
-    value: 92,
-    description: "Prompts with a clear expert role usually produce stronger outputs.",
-  },
-  {
-    name: "Context Enrichment",
-    value: 88,
-    description: "Adding missing context improves relevance and reduces generic answers.",
-  },
-  {
-    name: "Output Formatting",
-    value: 84,
-    description: "Clear structure helps models produce cleaner and reusable results.",
-  },
-  {
-    name: "Constraints",
-    value: 79,
-    description: "Constraints reduce vague, unsupported, or overly broad answers.",
-  },
-];
+const sourceTypes = ["All", "feedback", "history", "corpus"];
+const signalTypes = ["All", "preference", "demonstration", "curated"];
 
 export default function TrainingPage() {
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+  const [signals, setSignals] = useState<TrainingSignal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generationMsg, setGenerationMsg] = useState("");
+
+  // Filters
+  const [sourceType, setSourceType] = useState("All");
+  const [signalType, setSignalType] = useState("All");
+  const [minScore, setMinScore] = useState(0);
   const [search, setSearch] = useState("");
 
+  async function fetchSignals() {
+    try {
+      setLoading(true);
+      setError("");
+      const res = await fetch("/api/training-signals");
+      const data = await res.json();
+      if (data.success) {
+        setSignals(data.items);
+      } else {
+        setError(data.error || "Failed to load signals");
+      }
+    } catch {
+      setError("Failed to fetch from Training Signals API");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    const savedHistory = localStorage.getItem("worldsly_history");
-    const savedFeedback = localStorage.getItem("wordsly_feedback");
-
-    if (savedHistory) {
-      setHistory(JSON.parse(savedHistory));
-    }
-
-    if (savedFeedback) {
-      setFeedback(JSON.parse(savedFeedback));
-    }
+    fetchSignals();
   }, []);
 
-  const usefulCount = feedback.filter((item) => item.rating === "useful").length;
-  const needsWorkCount = feedback.filter(
-    (item) => item.rating === "needs_work"
-  ).length;
+  async function generateSignals() {
+    try {
+      setGenerating(true);
+      setGenerationMsg("");
+      const res = await fetch("/api/training-signals", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setGenerationMsg(data.message);
+        fetchSignals();
+      } else {
+        alert(data.error || "Failed to build signals");
+      }
+    } catch {
+      alert("Error calling signals generator API");
+    } finally {
+      setGenerating(false);
+    }
+  }
 
-  const trainingExamples = history.filter((item) =>
-    item.tool.toLowerCase().includes("prompt")
-  );
+  const filteredSignals = useMemo(() => {
+    return signals.filter((s) => {
+      const matchesSource = sourceType === "All" || s.sourceType === sourceType;
+      const matchesSignal = signalType === "All" || s.signalType === signalType;
+      const matchesScore = s.score >= minScore;
+      
+      const metaString = JSON.stringify(s.metadata || {}).toLowerCase();
+      const matchesSearch =
+        s.sourceType.toLowerCase().includes(search.toLowerCase()) ||
+        s.signalType.toLowerCase().includes(search.toLowerCase()) ||
+        metaString.includes(search.toLowerCase());
 
-  const datasetSize = trainingExamples.length + feedback.length;
-
-  const preferenceScore =
-    feedback.length === 0 ? 0 : Math.round((usefulCount / feedback.length) * 100);
-
-  const trainingReadiness = Math.min(
-    100,
-    datasetSize * 8 + usefulCount * 6 + trainingExamples.length * 4
-  );
-
-  const filteredTrainingExamples = useMemo(() => {
-    return trainingExamples.filter((item) => {
-      const text = `${item.tool} ${item.output} ${item.createdAt}`;
-      return text.toLowerCase().includes(search.toLowerCase());
+      return matchesSource && matchesSignal && matchesScore && matchesSearch;
     });
-  }, [trainingExamples, search]);
+  }, [signals, sourceType, signalType, minScore, search]);
+
+  // Calculations
+  const feedbackSignals = signals.filter(s => s.sourceType === "feedback");
+  const usefulFeedback = feedbackSignals.filter(s => s.score === 100).length;
+  
+  const preferenceScore = feedbackSignals.length
+    ? Math.round((usefulFeedback / feedbackSignals.length) * 100)
+    : 0;
+
+  const datasetSize = signals.length;
+
+  const datasetReadiness = Math.min(
+    100,
+    datasetSize * 5 + usefulFeedback * 8
+  );
+
+  // Exporters
+  function exportToJSON() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(filteredSignals, null, 2));
+    const dlAnchor = document.createElement("a");
+    dlAnchor.setAttribute("href", dataStr);
+    dlAnchor.setAttribute("download", "wordsly_training_signals.json");
+    dlAnchor.click();
+  }
+
+  function exportToCSV() {
+    let csvContent = "data:text/csv;charset=utf-8,ID,SourceType,SignalType,Score,CreatedAt,OriginalPrompt,ImprovedPrompt\n";
+    
+    filteredSignals.forEach((s) => {
+      const id = s.id;
+      const src = s.sourceType;
+      const sig = s.signalType;
+      const score = s.score;
+      const created = s.createdAt;
+      
+      const orig = s.metadata?.originalPrompt ? `"${s.metadata.originalPrompt.replace(/"/g, '""')}"` : '""';
+      const imp = (s.metadata?.improvedPrompt || s.metadata?.prompt) ? `"${(s.metadata.improvedPrompt || s.metadata.prompt).replace(/"/g, '""')}"` : '""';
+      
+      csvContent += `${id},${src},${sig},${score},${created},${orig},${imp}\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const dlAnchor = document.createElement("a");
+    dlAnchor.setAttribute("href", encodedUri);
+    dlAnchor.setAttribute("download", "wordsly_training_signals.csv");
+    dlAnchor.click();
+  }
 
   return (
-    <main className="min-h-screen overflow-hidden bg-slate-100 px-6 py-6 text-slate-950 transition dark:bg-[#030712] dark:text-white">
+    <main className="min-h-screen bg-slate-100 px-6 py-6 text-slate-950 dark:bg-[#030712] dark:text-white relative">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute left-[-180px] top-[-160px] h-[520px] w-[520px] rounded-full bg-blue-500/25 blur-[140px]" />
         <div className="absolute right-[-180px] top-[120px] h-[520px] w-[520px] rounded-full bg-fuchsia-500/20 blur-[140px]" />
-        <div className="absolute bottom-[-180px] left-[30%] h-[520px] w-[520px] rounded-full bg-cyan-400/20 blur-[140px]" />
       </div>
 
       <section className="relative mx-auto max-w-7xl">
         <Navbar />
 
         <div className="mb-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="relative overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white/80 p-8 shadow-2xl shadow-slate-300/30 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/30">
-            <div className="absolute right-[-100px] top-[-100px] h-80 w-80 rounded-full bg-blue-500/20 blur-3xl" />
-            <div className="absolute bottom-[-120px] left-[30%] h-80 w-80 rounded-full bg-cyan-400/20 blur-3xl" />
-
-            <div className="relative">
-              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-sm font-black text-blue-500">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/60" />
-                Intelligence & Training Layer
-              </div>
-
-              <h1 className="max-w-4xl text-4xl font-black leading-tight tracking-tight md:text-6xl">
-                Train PromptMaster from prompt patterns and feedback.
-              </h1>
-
-              <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600 dark:text-slate-300">
-                This layer turns optimized prompts, curated examples, discovery
-                patterns, and user feedback into structured training signals for
-                a future self-improving prompt model.
-              </p>
-
-              <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-                <a
-                  href="/prompt-optimizer"
-                  className="rounded-2xl bg-blue-500 px-6 py-4 text-center font-black text-white shadow-xl shadow-blue-500/30 transition hover:-translate-y-1 hover:bg-blue-600"
-                >
-                  Generate Training Example
-                </a>
-
-                <a
-                  href="/feedback"
-                  className="rounded-2xl border border-slate-300 bg-white/70 px-6 py-4 text-center font-black text-slate-900 shadow-lg shadow-slate-300/20 transition hover:-translate-y-1 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-black/20 dark:hover:bg-white/10"
-                >
-                  View Feedback Signals
-                </a>
-              </div>
+          <div className="relative overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white/80 p-8 shadow-2xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
+            <h1 className="text-4xl font-black md:text-5xl leading-tight">Training Signals Engine</h1>
+            <p className="mt-4 text-slate-600 dark:text-slate-300">
+              Collect user preferences, curations, and optimizations to prepare datasets for the upcoming PromptMaster fine-tuning step.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-4">
+              <button
+                onClick={generateSignals}
+                disabled={generating}
+                className="rounded-2xl bg-blue-500 px-6 py-4 font-black text-white hover:bg-blue-600 transition disabled:opacity-50"
+              >
+                {generating ? "Generating..." : "Generate Learning Signals"}
+              </button>
             </div>
+            {generationMsg && (
+              <p className="mt-3 text-sm font-bold text-emerald-500">{generationMsg}</p>
+            )}
           </div>
 
-          <div className="rounded-[2.5rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-300/30 dark:border-white/10 dark:bg-white/5 dark:shadow-black/30">
-            <h2 className="text-2xl font-black">Training Readiness</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              MVP preview of how close the platform is to having usable training
-              data.
-            </p>
-
-            <div className="mt-6 rounded-3xl border border-white/10 bg-white/10 p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-400">
-                  Dataset Readiness
-                </p>
-                <p className="font-black">{trainingReadiness}%</p>
+          <div className="rounded-[2.5rem] border border-slate-200 bg-slate-950 p-6 text-white dark:border-white/10 dark:bg-white/5">
+            <h2 className="text-2xl font-black">Dataset Readiness</h2>
+            <p className="mt-2 text-sm text-slate-400">Calculated based on current signal size and quality metrics.</p>
+            <div className="mt-4">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-sm font-bold">Progress</span>
+                <span className="font-black">{datasetReadiness}%</span>
               </div>
-
               <div className="h-3 overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400"
-                  style={{ width: `${trainingReadiness}%` }}
+                  style={{ width: `${datasetReadiness}%` }}
                 />
               </div>
             </div>
-
             <div className="mt-5 grid grid-cols-2 gap-4">
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Dataset</p>
-                <h3 className="mt-2 text-4xl font-black">{datasetSize}</h3>
+              <div className="rounded-3xl bg-white/5 p-4 border border-white/10">
+                <p className="text-xs text-slate-400 font-bold">Total Signals</p>
+                <h3 className="text-3xl font-black mt-1">{datasetSize}</h3>
               </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Preference</p>
-                <h3 className="mt-2 text-4xl font-black">
-                  {preferenceScore}%
-                </h3>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Useful</p>
-                <h3 className="mt-2 text-4xl font-black text-emerald-300">
-                  {usefulCount}
-                </h3>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Needs Work</p>
-                <h3 className="mt-2 text-4xl font-black text-red-300">
-                  {needsWorkCount}
-                </h3>
+              <div className="rounded-3xl bg-white/5 p-4 border border-white/10">
+                <p className="text-xs text-slate-400 font-bold">Preference Rate</p>
+                <h3 className="text-3xl font-black mt-1 text-emerald-400">{preferenceScore}%</h3>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mb-8 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-          {[
-            { label: "Training Examples", value: trainingExamples.length, icon: "📚" },
-            { label: "Feedback Signals", value: feedback.length, icon: "🔁" },
-            { label: "Useful Signals", value: usefulCount, icon: "👍" },
-            { label: "Dataset Size", value: datasetSize, icon: "🧠" },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl shadow-slate-300/20 backdrop-blur-2xl transition hover:-translate-y-1 hover:border-blue-500/60 dark:border-white/10 dark:bg-white/5 dark:shadow-black/20"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/10 text-2xl">
-                {stat.icon}
-              </div>
-
-              <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-                {stat.label}
-              </p>
-
-              <h2 className="mt-2 text-4xl font-black">{stat.value}</h2>
+        {/* Filters and Exporters */}
+        <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 items-end">
+            <div>
+              <label className="block text-xs font-black text-slate-500 mb-1">Search Metadata</label>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search..."
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none dark:border-white/10 dark:bg-slate-950 dark:text-white"
+              />
             </div>
-          ))}
+            <div>
+              <label className="block text-xs font-black text-slate-500 mb-1">Source Type</label>
+              <select
+                value={sourceType}
+                onChange={(e) => setSourceType(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black outline-none dark:border-white/10 dark:bg-slate-950 dark:text-white"
+              >
+                {sourceTypes.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-black text-slate-500 mb-1">Signal Type</label>
+              <select
+                value={signalType}
+                onChange={(e) => setSignalType(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black outline-none dark:border-white/10 dark:bg-slate-950 dark:text-white"
+              >
+                {signalTypes.map((st) => <option key={st}>{st}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-black text-slate-500 mb-1">Min Score: {minScore}</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={minScore}
+                onChange={(e) => setMinScore(Number(e.target.value))}
+                className="w-full cursor-pointer accent-blue-500"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={exportToJSON}
+                className="flex-1 rounded-xl bg-slate-900 text-white px-3 py-3 text-xs font-black hover:bg-slate-800 dark:bg-white dark:text-slate-900"
+              >
+                Export JSON
+              </button>
+              <button
+                onClick={exportToCSV}
+                className="flex-1 rounded-xl bg-blue-500 text-white px-3 py-3 text-xs font-black hover:bg-blue-600"
+              >
+                Export CSV
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
-            <div className="mb-6">
-              <h2 className="text-2xl font-black">Training Pipeline</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
-                How Wordsly will transform prompt examples into model
-                improvement signals.
-              </p>
-            </div>
+        {/* Signals Logger List */}
+        {loading && <div className="text-center py-10 font-bold">Loading training signals...</div>}
+        {error && <div className="rounded-3xl bg-red-500/10 border border-red-500/20 p-5 text-red-500 font-bold text-center mb-8">{error}</div>}
 
-            <div className="space-y-5">
-              {trainingStages.map((stage, index) => (
+        {!loading && !error && (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-black">Logged Training Signals ({filteredSignals.length})</h2>
+            <div className="grid gap-4">
+              {filteredSignals.map((sig) => (
                 <div
-                  key={stage.title}
-                  className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-slate-950/60"
+                  key={sig.id}
+                  className="rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-md dark:border-white/10 dark:bg-white/5"
                 >
-                  <div className="mb-3 flex items-start justify-between gap-4">
-                    <div className="flex gap-4">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-2xl">
-                        {stage.icon}
-                      </div>
-
-                      <div>
-                        <h3 className="font-black">
-                          {index + 1}. {stage.title}
-                        </h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
-                          {stage.description}
-                        </p>
-                      </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <div className="flex gap-2">
+                      <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-black text-blue-500">Source: {sig.sourceType}</span>
+                      <span className="rounded-full bg-fuchsia-500/10 px-3 py-1 text-xs font-black text-fuchsia-500">Signal: {sig.signalType}</span>
                     </div>
+                    <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-500">Signal Score: {sig.score}</span>
+                  </div>
 
-                    <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-black text-blue-500">
-                      {stage.status}
-                    </span>
+                  {sig.corpus && (
+                    <p className="text-xs text-slate-500 font-bold mb-2">CONNECTED TO CORPUS: {sig.corpus.title}</p>
+                  )}
+
+                  <div className="rounded-2xl bg-slate-950 p-4 font-mono text-xs text-emerald-400 overflow-x-auto max-h-[160px]">
+                    {JSON.stringify(sig.metadata, null, 2)}
                   </div>
                 </div>
               ))}
             </div>
           </div>
-
-          <div className="space-y-8">
-            <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
-              <h2 className="text-2xl font-black">Model Learning Signals</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
-                Patterns that the future PromptMaster model should learn from.
-              </p>
-
-              <div className="mt-5 space-y-5">
-                {modelSignals.map((signal) => (
-                  <div
-                    key={signal.name}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-slate-950/60"
-                  >
-                    <div className="mb-3 flex items-center justify-between gap-4">
-                      <div>
-                        <h3 className="font-black">{signal.name}</h3>
-                        <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-400">
-                          {signal.description}
-                        </p>
-                      </div>
-
-                      <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-black text-emerald-500">
-                        {signal.value}%
-                      </span>
-                    </div>
-
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{ width: `${signal.value}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
-              <h2 className="text-2xl font-black">Training Dataset Preview</h2>
-
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search training examples..."
-                className="mt-5 w-full rounded-2xl border border-slate-300 bg-white px-5 py-4 text-sm font-bold outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-white/10 dark:bg-slate-950 dark:text-white"
-              />
-
-              <div className="mt-5 max-h-[580px] space-y-4 overflow-auto pr-2">
-                {filteredTrainingExamples.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-white/10 dark:bg-slate-950/60">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10 text-3xl">
-                      🧠
-                    </div>
-
-                    <h3 className="text-lg font-black">No training data yet</h3>
-
-                    <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
-                      Optimize prompts and save them to history to create
-                      training examples.
-                    </p>
-
-                    <a
-                      href="/prompt-optimizer"
-                      className="mt-5 inline-block rounded-2xl bg-blue-500 px-5 py-3 text-sm font-black text-white hover:bg-blue-600"
-                    >
-                      Create Example
-                    </a>
-                  </div>
-                ) : (
-                  filteredTrainingExamples.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-slate-950/60"
-                    >
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-black text-blue-500">
-                          {item.tool}
-                        </span>
-
-                        <p className="text-xs font-bold text-slate-500">
-                          {item.createdAt}
-                        </p>
-                      </div>
-
-                      <p className="line-clamp-6 text-sm leading-7 text-slate-700 dark:text-slate-300">
-                        {item.output}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
       </section>
     </main>
   );

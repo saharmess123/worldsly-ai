@@ -126,15 +126,15 @@ export async function GET() {
     ]);
 
     const originalScores = allOptimizationScores.map(
-      (item) => item.originalScore
+      (item: { originalScore: number }) => item.originalScore
     );
 
     const improvedScores = allOptimizationScores.map(
-      (item) => item.improvedScore
+      (item: { improvedScore: number }) => item.improvedScore
     );
 
     const scoreGains = allOptimizationScores.map(
-      (item) => item.improvedScore - item.originalScore
+      (item: { originalScore: number; improvedScore: number }) => item.improvedScore - item.originalScore
     );
 
     const averageOriginalScore = calculateAverage(originalScores);
