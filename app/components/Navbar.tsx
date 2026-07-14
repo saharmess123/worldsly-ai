@@ -1,6 +1,8 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import ThemeToggle from "./ThemeToggle";
 
 const userLinks = [
@@ -31,21 +33,28 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<"user" | "admin">("admin");
 
+  const isDev = process.env.NODE_ENV === "development";
+
   useEffect(() => {
     const localRole = localStorage.getItem("wordsly_user_role");
+    let nextRole: "user" | "admin" = "admin";
     if (localRole === "user") {
-      setRole("user");
+      nextRole = "user";
     } else {
-      setRole("admin");
+      nextRole = "admin";
       localStorage.setItem("wordsly_user_role", "admin");
     }
+    setRole(nextRole);
+    document.cookie = `wordsly_user_role=${nextRole}; path=/; max-age=31536000`;
   }, []);
 
   function toggleRole() {
     const nextRole = role === "admin" ? "user" : "admin";
     localStorage.setItem("wordsly_user_role", nextRole);
+    document.cookie = `wordsly_user_role=${nextRole}; path=/; max-age=31536000`;
     setRole(nextRole);
     window.dispatchEvent(new Event("storage")); // Trigger updates in settings
+    window.location.reload(); // Force reload to trigger middleware route protection
   }
 
   const activeLinks = role === "admin" ? adminLinks : userLinks;
@@ -53,13 +62,13 @@ export default function Navbar() {
   return (
     <nav className="relative z-50 mb-8 rounded-[2rem] border border-slate-200 bg-white/85 px-5 py-4 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
       <div className="flex items-center justify-between gap-4">
-        <a href="/" className="shrink-0 text-3xl font-black tracking-tight">
+        <Link href="/" className="shrink-0 text-3xl font-black tracking-tight">
           Wordsly<span className="text-blue-500">.Ai</span>
-        </a>
+        </Link>
 
         {/* Desktop Links */}
         <div className="hidden items-center gap-5 text-sm font-bold text-slate-600 dark:text-slate-300 lg:flex">
-          <a href="/" className="transition hover:text-blue-500">Home</a>
+          <Link href="/" className="transition hover:text-blue-500">Home</Link>
           <a href="/dashboard" className="transition hover:text-blue-500">Dashboard</a>
           <a href="/prompt-optimizer" className="transition hover:text-blue-500">Optimizer</a>
           <a href="/tools" className="transition hover:text-blue-500">Tools</a>
@@ -100,14 +109,16 @@ export default function Navbar() {
 
         {/* Controls */}
         <div className="hidden items-center gap-3 sm:flex">
-          <button
-            onClick={toggleRole}
-            className={`rounded-full px-4 py-2 text-xs font-black transition ${
-              role === "admin" ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
-            }`}
-          >
-            Role: {role === "admin" ? "Admin 🛠️" : "User 👤"}
-          </button>
+          {isDev && (
+            <button
+              onClick={toggleRole}
+              className={`rounded-full px-4 py-2 text-xs font-black transition ${
+                role === "admin" ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
+              }`}
+            >
+              Role: {role === "admin" ? "Admin 🛠️" : "User 👤"}
+            </button>
+          )}
           
           <ThemeToggle />
 
@@ -121,12 +132,14 @@ export default function Navbar() {
 
         {/* Mobile controls */}
         <div className="flex items-center gap-2 lg:hidden">
-          <button
-            onClick={toggleRole}
-            className="rounded-full bg-slate-200 dark:bg-white/10 px-3 py-2 text-[10px] font-black"
-          >
-            {role === "admin" ? "Admin" : "User"}
-          </button>
+          {isDev && (
+            <button
+              onClick={toggleRole}
+              className="rounded-full bg-slate-200 dark:bg-white/10 px-3 py-2 text-[10px] font-black"
+            >
+              {role === "admin" ? "Admin" : "User"}
+            </button>
+          )}
           <ThemeToggle />
           <button
             onClick={() => setOpen(!open)}
@@ -141,7 +154,7 @@ export default function Navbar() {
       {open && (
         <div className="mt-4 rounded-[2rem] border border-slate-200 bg-white p-3 shadow-xl dark:border-white/10 dark:bg-slate-950 lg:hidden">
           <div className="grid gap-2 max-h-[60vh] overflow-y-auto">
-            <a href="/" onClick={() => setOpen(false)} className="px-4 py-3 font-black">Home</a>
+            <Link href="/" onClick={() => setOpen(false)} className="px-4 py-3 font-black">Home</Link>
             {activeLinks.map((link) => (
               <a
                 key={link.title}

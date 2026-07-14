@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -5,6 +6,7 @@ import Navbar from "../components/Navbar";
 import ThemeToggle from "../components/ThemeToggle";
 
 export default function SettingsPage() {
+  const isDev = process.env.NODE_ENV === "development";
   const [preferredModel, setPreferredModel] = useState("GPT-4.1 / GPT-5 style");
   const [optimizationDepth, setOptimizationDepth] = useState("Balanced");
   const [defaultGoal, setDefaultGoal] = useState("More structured");
@@ -40,6 +42,7 @@ export default function SettingsPage() {
     localStorage.setItem("worldsly_personal_style", personalStyle);
     localStorage.setItem("worldsly_discovery_focus", discoveryFocus);
     localStorage.setItem("wordsly_user_role", role);
+    document.cookie = `wordsly_user_role=${role}; path=/; max-age=31536000`;
 
     setSaved(true);
 
@@ -152,30 +155,32 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
-              <h2 className="text-2xl font-black">Workspace Role Configuration</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
-                Switch user permissions to view the platform through different layouts.
-              </p>
-              
-              <div className="mt-4">
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm font-black outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white"
-                >
-                  <option value="admin">Admin / Developer Mode</option>
-                  <option value="user">Standard User Mode</option>
-                </select>
-              </div>
+            {isDev && (
+              <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
+                <h2 className="text-2xl font-black">Workspace Role Configuration</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
+                  Switch user permissions to view the platform through different layouts.
+                </p>
+                
+                <div className="mt-4">
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm font-black outline-none dark:border-white/10 dark:bg-slate-900 dark:text-white"
+                  >
+                    <option value="admin">Admin / Developer Mode</option>
+                    <option value="user">Standard User Mode</option>
+                  </select>
+                </div>
 
-              <button
-                onClick={saveSettings}
-                className="mt-4 w-full rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-950 px-5 py-3 text-sm font-black hover:bg-slate-800 transition"
-              >
-                Apply Role Change
-              </button>
-            </div>
+                <button
+                  onClick={saveSettings}
+                  className="mt-4 w-full rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-950 px-5 py-3 text-sm font-black hover:bg-slate-800 transition"
+                >
+                  Apply Role Change
+                </button>
+              </div>
+            )}
 
             <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
               <h2 className="text-2xl font-black">Personal Style Memory</h2>

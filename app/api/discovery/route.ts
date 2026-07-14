@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "../../lib/prisma";
 
 const ALLOWED_STATUSES = [
@@ -26,6 +27,14 @@ function parseScore(value: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const searchParams = request.nextUrl.searchParams;
 
     const search = searchParams.get("search")?.trim() ?? "";
@@ -123,6 +132,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
 
     const title =
@@ -245,6 +262,14 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
 
     const id =
@@ -430,6 +455,14 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const id = request.nextUrl.searchParams.get("id")?.trim();
 
     if (!id) {

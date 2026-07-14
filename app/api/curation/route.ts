@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "../../lib/prisma";
+
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 const ALLOWED_REVIEW_STATUSES = [
   "approved",
@@ -37,6 +40,14 @@ function isValidRiskLevel(
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const items =
       await prisma.discoveredPrompt.findMany({
         where: {
@@ -120,6 +131,14 @@ export async function POST(
   request: NextRequest
 ) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
 
     const discoveredPromptId =
@@ -130,7 +149,7 @@ export async function POST(
 
     const reviewerId =
       typeof body.reviewerId === "string" &&
-      body.reviewerId.trim()
+        body.reviewerId.trim()
         ? body.reviewerId.trim()
         : null;
 
@@ -268,7 +287,7 @@ export async function POST(
 
     const result =
       await prisma.$transaction(
-        async (transaction) => {
+        async (transaction: TransactionClient) => {
           const review =
             await transaction.curationReview.create({
               data: {
@@ -356,6 +375,14 @@ export async function DELETE(
   request: NextRequest
 ) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const id =
       request.nextUrl.searchParams
         .get("id")
@@ -395,7 +422,7 @@ export async function DELETE(
     }
 
     await prisma.$transaction(
-      async (transaction) => {
+      async (transaction: TransactionClient) => {
         await transaction.curationReview.delete({
           where: {
             id,

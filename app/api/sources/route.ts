@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "../../lib/prisma";
 
 type SourcePostBody = {
@@ -59,6 +60,14 @@ function formatSourceItem(item: {
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const items = await prisma.source.findMany({
       orderBy: {
         createdAt: "desc",
@@ -106,6 +115,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     let body: SourcePostBody;
 
     try {
@@ -172,6 +189,14 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
+    if (role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
 
