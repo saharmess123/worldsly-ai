@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { cookies } from "next/headers";
-import { prisma } from "../../lib/prisma";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+import { prisma } from "../../lib/prisma";
 
 const ALLOWED_REVIEW_STATUSES = [
   "approved",
@@ -16,11 +19,27 @@ const ALLOWED_RISK_LEVELS = [
   "high",
 ] as const;
 
+const CURATION_PROMPT_STATUSES = [
+  "sent_to_curation",
+  "approved",
+  "rejected",
+] as const;
+
 type ReviewStatus =
   (typeof ALLOWED_REVIEW_STATUSES)[number];
 
 type RiskLevel =
   (typeof ALLOWED_RISK_LEVELS)[number];
+
+async function requireAdmin() {
+  const cookieStore = await cookies();
+
+  const role =
+    cookieStore.get("wordsly_user_role")
+      ?.value || "admin";
+
+  return role === "admin";
+}
 
 function isValidReviewStatus(
   value: string
@@ -38,16 +57,216 @@ function isValidRiskLevel(
   );
 }
 
+function getDiscoveryStatus(
+  reviewStatus?: string
+) {
+  if (reviewStatus === "approved") {
+    return "approved";
+  }
+
+  if (reviewStatus === "rejected") {
+    return "rejected";
+  }
+
+  return "sent_to_curation";
+}
+
+async function syncApprovedPromptPipeline(
+  transaction: Prisma.TransactionClient,
+  discoveredPromptId: string,
+  review: {
+    id: string;
+    reviewerId: string | null;
+    status: string;
+    riskLevel: string;
+    reviewReason: string | null;
+    createdAt: Date;
+  } | null
+) {
+  const discoveredPrompt =
+    await transaction.discoveredPrompt.findUnique({
+      where: {
+        id: discoveredPromptId,
+      },
+      include: {
+        source: true,
+      },
+    });
+
+  if (!discoveredPrompt) {
+    throw new Error(
+      "Discovered prompt could not be loaded."
+    );
+  }
+
+  /*
+   * A prompt remains in Corpus and Training Signals
+   * only when its latest Curation review is approved.
+   *
+   * TrainingSignal uses onDelete: Cascade, so deleting
+   * the CorpusPrompt also removes its linked signal.
+   */
+  if (review?.status !== "approved") {
+    await transaction.corpusPrompt.deleteMany({
+      where: {
+        discoveredPromptId,
+      },
+    });
+
+    return {
+      corpusPrompt: null,
+      trainingSignal: null,
+    };
+  }
+
+  const corpusMetadata = {
+    pipelineSource: "curation",
+    discoveredPromptId:
+      discoveredPrompt.id,
+    curationReviewId: review.id,
+    reviewerId: review.reviewerId,
+    reviewStatus: review.status,
+    reviewReason: review.reviewReason,
+    riskLevel: review.riskLevel,
+    sourceUrl:
+      discoveredPrompt.sourceUrl,
+    source: discoveredPrompt.source
+      ? {
+          id: discoveredPrompt.source.id,
+          name: discoveredPrompt.source.name,
+          type: discoveredPrompt.source.type,
+          url: discoveredPrompt.source.url,
+          credibilityScore:
+            discoveredPrompt.source
+              .credibilityScore,
+        }
+      : null,
+    discoveredAt:
+      discoveredPrompt.discoveredAt,
+    approvedAt: review.createdAt,
+  };
+
+  /*
+   * discoveredPromptId is unique in CorpusPrompt.
+   * This prevents duplicate Corpus records.
+   */
+  const corpusPrompt =
+    await transaction.corpusPrompt.upsert({
+      where: {
+        discoveredPromptId,
+      },
+      create: {
+        discoveredPromptId,
+        title: discoveredPrompt.title,
+        prompt: discoveredPrompt.prompt,
+        improvedVersion: null,
+        category:
+          discoveredPrompt.category ||
+          "General",
+        model:
+          discoveredPrompt.model ||
+          "General",
+        qualityScore:
+          discoveredPrompt.qualityScore,
+        patterns: JSON.stringify([]),
+        metadata:
+          JSON.stringify(corpusMetadata),
+      },
+      update: {
+        title: discoveredPrompt.title,
+        prompt: discoveredPrompt.prompt,
+        category:
+          discoveredPrompt.category ||
+          "General",
+        model:
+          discoveredPrompt.model ||
+          "General",
+        qualityScore:
+          discoveredPrompt.qualityScore,
+        metadata:
+          JSON.stringify(corpusMetadata),
+      },
+    });
+
+  const deduplicationKey =
+    `corpus:${corpusPrompt.id}:curated`;
+
+  const trainingMetadata = {
+    pipelineSource:
+      "curation_to_corpus",
+    discoveredPromptId:
+      discoveredPrompt.id,
+    corpusPromptId:
+      corpusPrompt.id,
+    curationReviewId: review.id,
+    reviewerId: review.reviewerId,
+    reviewReason: review.reviewReason,
+    riskLevel: review.riskLevel,
+    title: corpusPrompt.title,
+    prompt: corpusPrompt.prompt,
+    improvedVersion:
+      corpusPrompt.improvedVersion,
+    category: corpusPrompt.category,
+    model: corpusPrompt.model,
+    qualityScore:
+      corpusPrompt.qualityScore,
+    approvedAt: review.createdAt,
+  };
+
+  /*
+   * deduplicationKey is unique in TrainingSignal.
+   * Repeated approval updates the existing signal.
+   */
+  const trainingSignal =
+    await transaction.trainingSignal.upsert({
+      where: {
+        deduplicationKey,
+      },
+      create: {
+        deduplicationKey,
+        sourceType: "corpus",
+        sourceId: discoveredPrompt.id,
+        corpusId: corpusPrompt.id,
+        signalType: "curated",
+        score: corpusPrompt.qualityScore,
+        metadata:
+          JSON.stringify(trainingMetadata),
+      },
+      update: {
+        sourceType: "corpus",
+        sourceId: discoveredPrompt.id,
+        corpusId: corpusPrompt.id,
+        signalType: "curated",
+        score: corpusPrompt.qualityScore,
+        metadata:
+          JSON.stringify(trainingMetadata),
+      },
+    });
+
+  return {
+    corpusPrompt,
+    trainingSignal,
+  };
+}
+
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
-    if (role !== "admin") {
+    const isAdmin =
+      await requireAdmin();
+
+    if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: "Access denied. Admin privileges required." },
-        { status: 403 }
+        {
+          success: false,
+          error:
+            "Access denied. Admin privileges required.",
+        },
+        {
+          status: 403,
+        }
       );
     }
+
     const items =
       await prisma.discoveredPrompt.findMany({
         where: {
@@ -61,6 +280,11 @@ export async function GET() {
         },
         include: {
           source: true,
+          corpusPrompt: {
+            include: {
+              trainingSignals: true,
+            },
+          },
           curationReviews: {
             orderBy: {
               createdAt: "desc",
@@ -86,16 +310,20 @@ export async function GET() {
         continue;
       }
 
-      if (latestReview.status === "approved") {
+      if (
+        latestReview.status === "approved"
+      ) {
         approvedCount += 1;
-      }
-
-      if (latestReview.status === "rejected") {
+      } else if (
+        latestReview.status === "rejected"
+      ) {
         rejectedCount += 1;
-      }
-
-      if (latestReview.status === "risky") {
+      } else if (
+        latestReview.status === "risky"
+      ) {
         riskyCount += 1;
+      } else {
+        pendingCount += 1;
       }
     }
 
@@ -131,41 +359,72 @@ export async function POST(
   request: NextRequest
 ) {
   try {
-    const cookieStore = await cookies();
-    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
-    if (role !== "admin") {
+    const isAdmin =
+      await requireAdmin();
+
+    if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: "Access denied. Admin privileges required." },
-        { status: 403 }
+        {
+          success: false,
+          error:
+            "Access denied. Admin privileges required.",
+        },
+        {
+          status: 403,
+        }
       );
     }
-    const body = await request.json();
+
+    const body: unknown =
+      await request.json();
+
+    if (
+      !body ||
+      typeof body !== "object" ||
+      Array.isArray(body)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "A valid request body is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const input =
+      body as Record<string, unknown>;
 
     const discoveredPromptId =
-      typeof body.discoveredPromptId ===
-        "string"
-        ? body.discoveredPromptId.trim()
+      typeof input.discoveredPromptId ===
+      "string"
+        ? input.discoveredPromptId.trim()
         : "";
 
     const reviewerId =
-      typeof body.reviewerId === "string" &&
-        body.reviewerId.trim()
-        ? body.reviewerId.trim()
+      typeof input.reviewerId ===
+        "string" &&
+      input.reviewerId.trim()
+        ? input.reviewerId.trim()
         : null;
 
     const status =
-      typeof body.status === "string"
-        ? body.status.trim()
+      typeof input.status === "string"
+        ? input.status.trim()
         : "";
 
     const riskLevel =
-      typeof body.riskLevel === "string"
-        ? body.riskLevel.trim()
+      typeof input.riskLevel === "string"
+        ? input.riskLevel.trim()
         : "";
 
     const reviewReason =
-      typeof body.reviewReason === "string"
-        ? body.reviewReason.trim()
+      typeof input.reviewReason ===
+      "string"
+        ? input.reviewReason.trim()
         : "";
 
     if (!discoveredPromptId) {
@@ -225,6 +484,10 @@ export async function POST(
         where: {
           id: discoveredPromptId,
         },
+        select: {
+          id: true,
+          status: true,
+        },
       });
 
     if (!discoveredPrompt) {
@@ -240,15 +503,10 @@ export async function POST(
       );
     }
 
-    const allowedPromptStatuses = [
-      "sent_to_curation",
-      "approved",
-      "rejected",
-    ];
-
     if (
-      !allowedPromptStatuses.includes(
-        discoveredPrompt.status
+      !CURATION_PROMPT_STATUSES.includes(
+        discoveredPrompt.status as
+          (typeof CURATION_PROMPT_STATUSES)[number]
       )
     ) {
       return NextResponse.json(
@@ -269,6 +527,9 @@ export async function POST(
           where: {
             id: reviewerId,
           },
+          select: {
+            id: true,
+          },
         });
 
       if (!reviewer) {
@@ -287,7 +548,7 @@ export async function POST(
 
     const result =
       await prisma.$transaction(
-        async (transaction: TransactionClient) => {
+        async (transaction) => {
           const review =
             await transaction.curationReview.create({
               data: {
@@ -299,43 +560,54 @@ export async function POST(
               },
             });
 
-          let discoveryStatus =
-            "sent_to_curation";
+          const discoveryStatus =
+            getDiscoveryStatus(status);
 
-          if (status === "approved") {
-            discoveryStatus = "approved";
-          }
+          await transaction.discoveredPrompt.update({
+            where: {
+              id: discoveredPromptId,
+            },
+            data: {
+              status: discoveryStatus,
+            },
+          });
 
-          if (status === "rejected") {
-            discoveryStatus = "rejected";
-          }
-
-          if (status === "risky") {
-            discoveryStatus =
-              "sent_to_curation";
-          }
+          const pipelineResult =
+            await syncApprovedPromptPipeline(
+              transaction,
+              discoveredPromptId,
+              review
+            );
 
           const updatedPrompt =
-            await transaction.discoveredPrompt.update({
-              where: {
-                id: discoveredPromptId,
-              },
-              data: {
-                status: discoveryStatus,
-              },
-              include: {
-                source: true,
-                curationReviews: {
-                  orderBy: {
-                    createdAt: "desc",
+            await transaction.discoveredPrompt.findUniqueOrThrow(
+              {
+                where: {
+                  id: discoveredPromptId,
+                },
+                include: {
+                  source: true,
+                  corpusPrompt: {
+                    include: {
+                      trainingSignals: true,
+                    },
+                  },
+                  curationReviews: {
+                    orderBy: {
+                      createdAt: "desc",
+                    },
                   },
                 },
-              },
-            });
+              }
+            );
 
           return {
             review,
             updatedPrompt,
+            corpusPrompt:
+              pipelineResult.corpusPrompt,
+            trainingSignal:
+              pipelineResult.trainingSignal,
           };
         }
       );
@@ -344,9 +616,21 @@ export async function POST(
       {
         success: true,
         message:
-          "Curation review saved successfully.",
+          status === "approved"
+            ? "Approved and added to Corpus. A Training Signal was also created."
+            : status === "rejected"
+              ? "Prompt rejected and removed from the Corpus and Training Signals."
+              : "Prompt marked as risky and kept in the Curation queue.",
         review: result.review,
         item: result.updatedPrompt,
+        corpusPrompt:
+          result.corpusPrompt,
+        trainingSignal:
+          result.trainingSignal,
+        addedToCorpus:
+          result.corpusPrompt !== null,
+        addedToTraining:
+          result.trainingSignal !== null,
       },
       {
         status: 201,
@@ -357,6 +641,19 @@ export async function POST(
       "POST /api/curation error:",
       error
     );
+
+    if (error instanceof SyntaxError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "The request body contains invalid JSON.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     return NextResponse.json(
       {
@@ -375,14 +672,22 @@ export async function DELETE(
   request: NextRequest
 ) {
   try {
-    const cookieStore = await cookies();
-    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
-    if (role !== "admin") {
+    const isAdmin =
+      await requireAdmin();
+
+    if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: "Access denied. Admin privileges required." },
-        { status: 403 }
+        {
+          success: false,
+          error:
+            "Access denied. Admin privileges required.",
+        },
+        {
+          status: 403,
+        }
       );
     }
+
     const id =
       request.nextUrl.searchParams
         .get("id")
@@ -406,6 +711,10 @@ export async function DELETE(
         where: {
           id,
         },
+        select: {
+          id: true,
+          discoveredPromptId: true,
+        },
       });
 
     if (!review) {
@@ -421,70 +730,98 @@ export async function DELETE(
       );
     }
 
-    await prisma.$transaction(
-      async (transaction: TransactionClient) => {
-        await transaction.curationReview.delete({
-          where: {
-            id,
-          },
-        });
-
-        const remainingReviews =
-          await transaction.curationReview.findMany({
+    const result =
+      await prisma.$transaction(
+        async (transaction) => {
+          await transaction.curationReview.delete({
             where: {
-              discoveredPromptId:
-                review.discoveredPromptId,
-            },
-            orderBy: {
-              createdAt: "desc",
+              id,
             },
           });
 
-        const latestReview =
-          remainingReviews[0];
+          const latestReview =
+            await transaction.curationReview.findFirst({
+              where: {
+                discoveredPromptId:
+                  review.discoveredPromptId,
+              },
+              orderBy: {
+                createdAt: "desc",
+              },
+            });
 
-        let nextStatus =
-          "sent_to_curation";
+          const nextStatus =
+            getDiscoveryStatus(
+              latestReview?.status
+            );
 
-        if (
-          latestReview?.status ===
-          "approved"
-        ) {
-          nextStatus = "approved";
-        }
+          await transaction.discoveredPrompt.update({
+            where: {
+              id:
+                review.discoveredPromptId,
+            },
+            data: {
+              status: nextStatus,
+            },
+          });
 
-        if (
-          latestReview?.status ===
-          "rejected"
-        ) {
-          nextStatus = "rejected";
-        }
-
-        if (
-          latestReview?.status ===
-          "risky"
-        ) {
-          nextStatus =
-            "sent_to_curation";
-        }
-
-        await transaction.discoveredPrompt.update({
-          where: {
-            id:
+          const pipelineResult =
+            await syncApprovedPromptPipeline(
+              transaction,
               review.discoveredPromptId,
-          },
-          data: {
-            status: nextStatus,
-          },
-        });
-      }
-    );
+              latestReview
+            );
+
+          const updatedPrompt =
+            await transaction.discoveredPrompt.findUniqueOrThrow(
+              {
+                where: {
+                  id:
+                    review.discoveredPromptId,
+                },
+                include: {
+                  source: true,
+                  corpusPrompt: {
+                    include: {
+                      trainingSignals: true,
+                    },
+                  },
+                  curationReviews: {
+                    orderBy: {
+                      createdAt: "desc",
+                    },
+                  },
+                },
+              }
+            );
+
+          return {
+            latestReview,
+            corpusPrompt:
+              pipelineResult.corpusPrompt,
+            trainingSignal:
+              pipelineResult.trainingSignal,
+            updatedPrompt,
+          };
+        }
+      );
 
     return NextResponse.json({
       success: true,
       message:
-        "Curation review deleted successfully.",
+        "Curation review deleted and the full pipeline was synchronized successfully.",
       deletedId: id,
+      latestReview:
+        result.latestReview,
+      item: result.updatedPrompt,
+      corpusPrompt:
+        result.corpusPrompt,
+      trainingSignal:
+        result.trainingSignal,
+      addedToCorpus:
+        result.corpusPrompt !== null,
+      addedToTraining:
+        result.trainingSignal !== null,
     });
   } catch (error) {
     console.error(

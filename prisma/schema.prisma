@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "sqlite"
 }
+
 model User {
   id           String   @id @default(cuid())
   name         String?
@@ -15,24 +16,24 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  settings       UserSettings?
-  optimizations  Optimization[]
-  feedback       Feedback[]
-  apiKeys        ApiKey[]
+  settings        UserSettings?
+  optimizations   Optimization[]
+  feedback        Feedback[]
+  apiKeys         ApiKey[]
   curationReviews CurationReview[]
 }
 
 model UserSettings {
-  id                  String   @id @default(cuid())
-  userId              String   @unique
-  preferredModel      String   @default("GPT-4.1 / GPT-5 style")
-  optimizationDepth   String   @default("Balanced")
-  defaultGoal         String   @default("More structured")
-  outputFormat        String   @default("Detailed explanation")
-  personalStyle       String?
-  discoveryFocus      String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  preferredModel    String   @default("GPT-4.1 / GPT-5 style")
+  optimizationDepth String   @default("Balanced")
+  defaultGoal       String   @default("More structured")
+  outputFormat      String   @default("Detailed explanation")
+  personalStyle     String?
+  discoveryFocus    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -86,16 +87,16 @@ model Feedback {
 }
 
 model Source {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   name             String
   type             String
   url              String?
-  credibilityScore Int      @default(0)
-  status           String   @default("active")
+  credibilityScore Int       @default(0)
+  status           String    @default("active")
   lastScanAt       DateTime?
-  scanFrequency    String   @default("manual")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  scanFrequency    String    @default("manual")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   discoveredPrompts DiscoveredPrompt[]
 
@@ -117,6 +118,7 @@ model DiscoveredPrompt {
 
   source          Source?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   curationReviews CurationReview[]
+  corpusPrompt    CorpusPrompt?
 
   @@index([sourceId])
   @@index([category])
@@ -142,19 +144,21 @@ model CurationReview {
 }
 
 model CorpusPrompt {
-  id              String   @id @default(cuid())
-  title           String
-  prompt          String
-  improvedVersion String?
-  category        String   @default("General")
-  model           String   @default("General")
-  qualityScore    Int      @default(0)
-  patterns        String?
-  metadata        String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  discoveredPromptId String?  @unique
+  title              String
+  prompt             String
+  improvedVersion    String?
+  category           String   @default("General")
+  model              String   @default("General")
+  qualityScore       Int      @default(0)
+  patterns           String?
+  metadata           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  trainingSignals TrainingSignal[]
+  discoveredPrompt DiscoveredPrompt? @relation(fields: [discoveredPromptId], references: [id], onDelete: SetNull)
+  trainingSignals  TrainingSignal[]
 
   @@index([category])
   @@index([model])
@@ -162,29 +166,33 @@ model CorpusPrompt {
 }
 
 model TrainingSignal {
-  id         String   @id @default(cuid())
-  sourceType String
-  sourceId   String?
-  corpusId   String?
-  signalType String
-  score      Int      @default(0)
-  metadata   String?
-  createdAt  DateTime @default(now())
+  id               String   @id @default(cuid())
+  deduplicationKey String?  @unique
+  sourceType       String
+  sourceId         String?
+  corpusId         String?
+  signalType       String
+  score            Int      @default(0)
+  metadata         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  corpus CorpusPrompt? @relation(fields: [corpusId], references: [id], onDelete: SetNull)
+  corpus CorpusPrompt? @relation(fields: [corpusId], references: [id], onDelete: Cascade)
 
   @@index([sourceType])
   @@index([signalType])
   @@index([corpusId])
+  @@index([sourceId])
+  @@index([createdAt])
 }
 
 model ApiKey {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     String
   keyHash    String
   label      String?
-  usageLimit Int      @default(1000)
-  createdAt  DateTime @default(now())
+  usageLimit Int       @default(1000)
+  createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
