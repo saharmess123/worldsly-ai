@@ -38,6 +38,7 @@ export default function TrainingPage() {
     invalidRecords: 0,
     duplicateRecords: 0,
   });
+  const [averageScore, setAverageScore] = useState(0);
 
   // Filters
   const [sourceType, setSourceType] = useState("All");
@@ -54,6 +55,7 @@ export default function TrainingPage() {
       if (data.success) {
         setSignals(data.items);
         setSummary(data.summary);
+        setAverageScore(data.averageScore || 0);
       } else {
         setError(data.error || "Failed to load signals");
       }
@@ -128,6 +130,67 @@ export default function TrainingPage() {
     }
   }, [summary]);
 
+  // Dataset validation metrics
+  const validationMetrics = useMemo(() => {
+    const total = summary.totalRecords;
+    const valid = summary.validRecords;
+    const duplicate = summary.duplicateRecords;
+    const invalid = summary.invalidRecords;
+
+    const readyPct = total > 0 ? Math.round((valid / total) * 100) : 0;
+    const duplicatePct = total > 0 ? Math.round((duplicate / total) * 100) : 0;
+    const invalidPct = total > 0 ? Math.round((invalid / total) * 100) : 0;
+
+    let quality = "N/A";
+    let qualityColor = "text-slate-400";
+    let qualityBg = "bg-slate-400/10";
+    let qualityBorder = "border-slate-400/20";
+    let qualityGlow = "shadow-slate-400/10";
+
+    if (total > 0) {
+      if (averageScore >= 80 && readyPct >= 85) {
+        quality = "Excellent";
+        qualityColor = "text-emerald-400 dark:text-emerald-400";
+        qualityBg = "bg-emerald-500/10";
+        qualityBorder = "border-emerald-500/20";
+        qualityGlow = "shadow-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.15)]";
+      } else if (averageScore >= 70 && readyPct >= 70) {
+        quality = "Good";
+        qualityColor = "text-blue-400 dark:text-blue-400";
+        qualityBg = "bg-blue-500/10";
+        qualityBorder = "border-blue-500/20";
+        qualityGlow = "shadow-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.15)]";
+      } else if (averageScore >= 50 && readyPct >= 50) {
+        quality = "Fair";
+        qualityColor = "text-amber-400 dark:text-amber-400";
+        qualityBg = "bg-amber-500/10";
+        qualityBorder = "border-amber-500/20";
+        qualityGlow = "shadow-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.15)]";
+      } else {
+        quality = "Poor";
+        qualityColor = "text-rose-400 dark:text-rose-400";
+        qualityBg = "bg-rose-500/10";
+        qualityBorder = "border-rose-500/20";
+        qualityGlow = "shadow-rose-500/20 shadow-[0_0_20px_rgba(239,68,68,0.15)]";
+      }
+    }
+
+    return {
+      total,
+      valid,
+      duplicate,
+      invalid,
+      readyPct,
+      duplicatePct,
+      invalidPct,
+      quality,
+      qualityColor,
+      qualityBg,
+      qualityBorder,
+      qualityGlow,
+    };
+  }, [summary, averageScore]);
+
   // Exporters
   function exportToJSON() {
     // Only export clean validated pairs
@@ -136,9 +199,8 @@ export default function TrainingPage() {
       .map((s) => ({
         input: s.input,
         output: s.output,
-        category: s.category,
         score: s.score,
-        sourceType: s.sourceType,
+        category: s.category,
       }));
 
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cleanDataset, null, 2));
@@ -150,19 +212,38 @@ export default function TrainingPage() {
 
   function exportToCSV() {
     // Only export clean validated pairs
-    let csvContent = "data:text/csv;charset=utf-8,input,output,category,score,sourceType\n";
+    let csvContent = "data:text/csv;charset=utf-8,input,output,score,category\n";
     const cleanDataset = filteredSignals.filter((s) => s.isValid && !s.isDuplicate);
     
     cleanDataset.forEach((s) => {
       const orig = `"${s.input.replace(/"/g, '""')}"`;
       const imp = `"${s.output.replace(/"/g, '""')}"`;
-      csvContent += `${orig},${imp},${s.category},${s.score},${s.sourceType}\n`;
+      csvContent += `${orig},${imp},${s.score},${s.category}\n`;
     });
 
     const encodedUri = encodeURI(csvContent);
     const dlAnchor = document.createElement("a");
     dlAnchor.setAttribute("href", encodedUri);
     dlAnchor.setAttribute("download", "wordsly_training_dataset.csv");
+    dlAnchor.click();
+  }
+
+  function exportToJSONL() {
+    // Only export clean validated pairs
+    const cleanDataset = filteredSignals
+      .filter((s) => s.isValid && !s.isDuplicate)
+      .map((s) => ({
+        input: s.input,
+        output: s.output,
+        score: s.score,
+        category: s.category,
+      }));
+
+    const jsonlContent = cleanDataset.map((item) => JSON.stringify(item)).join("\n");
+    const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(jsonlContent);
+    const dlAnchor = document.createElement("a");
+    dlAnchor.setAttribute("href", dataStr);
+    dlAnchor.setAttribute("download", "wordsly_training_dataset.jsonl");
     dlAnchor.click();
   }
 
@@ -197,31 +278,71 @@ export default function TrainingPage() {
           </div>
 
           <div className="rounded-[2.5rem] border border-slate-200 bg-slate-950 p-6 text-white dark:border-white/10 dark:bg-white/5">
-            <div className="flex justify-between items-center mb-1">
-              <h2 className="text-2xl font-black">Dataset Readiness</h2>
-              <span className={`text-xs font-black rounded-full bg-white/10 px-3 py-1 ${readiness.color}`}>{readiness.level}</span>
+            {/* Header */}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-black">Dataset Validation</h2>
+              <span className={`text-xs font-black rounded-full px-3 py-1 border transition-all duration-300 ${validationMetrics.qualityBg} ${validationMetrics.qualityColor} ${validationMetrics.qualityBorder} ${validationMetrics.qualityGlow}`}>
+                Quality: {validationMetrics.quality}
+              </span>
             </div>
-            <p className="mt-2 text-xs text-slate-400 font-semibold">Targets 100+ clean records for a fully ready model fine-tuning.</p>
-            <div className="mt-4">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-xs text-slate-400 font-bold">Readiness Level</span>
-                <span className="font-black text-sm">{readiness.pct}%</span>
+
+            {/* Top Overview Cards */}
+            <div className="grid grid-cols-2 gap-4 mb-6 text-xs font-bold">
+              <div className="rounded-2xl bg-white/5 p-4 border border-white/10 hover:border-blue-500/30 transition duration-300">
+                <p className="text-slate-400">Total Samples</p>
+                <h3 className="text-3xl font-black mt-1 text-white">{validationMetrics.total}</h3>
               </div>
-              <div className="h-3 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className={`h-full rounded-full bg-gradient-to-r ${readiness.barColor}`}
-                  style={{ width: `${readiness.pct}%` }}
-                />
+              <div className="rounded-2xl bg-white/5 p-4 border border-white/10 hover:border-emerald-500/30 transition duration-300">
+                <p className="text-slate-400">Average Score</p>
+                <h3 className="text-3xl font-black mt-1 text-emerald-400">{averageScore}<span className="text-xs text-slate-500 font-bold">/100</span></h3>
               </div>
             </div>
-            <div className="mt-5 grid grid-cols-2 gap-4 text-xs font-bold">
-              <div className="rounded-3xl bg-white/5 p-4 border border-white/10">
-                <p className="text-slate-400">Total Valid Records</p>
-                <h3 className="text-2xl font-black mt-1 text-emerald-400">{summary.validRecords}</h3>
+
+            {/* Validation Metrics Bars */}
+            <div className="space-y-4">
+              {/* Ready % */}
+              <div>
+                <div className="flex justify-between items-center mb-1 text-xs font-bold">
+                  <span className="text-slate-400">Ready % (Valid Unique)</span>
+                  <span className="text-emerald-400">{validationMetrics.readyPct}%</span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-500"
+                    style={{ width: `${validationMetrics.readyPct}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-slate-400 font-semibold">{validationMetrics.valid} clean records</p>
               </div>
-              <div className="rounded-3xl bg-white/5 p-4 border border-white/10">
-                <p className="text-slate-400">Deduplicated Items</p>
-                <h3 className="text-2xl font-black mt-1 text-blue-400">{summary.duplicateRecords}</h3>
+
+              {/* Duplicate % */}
+              <div>
+                <div className="flex justify-between items-center mb-1 text-xs font-bold">
+                  <span className="text-slate-400">Duplicate % (Deduplicated)</span>
+                  <span className="text-amber-400">{validationMetrics.duplicatePct}%</span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-500"
+                    style={{ width: `${validationMetrics.duplicatePct}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-slate-400 font-semibold">{validationMetrics.duplicate} duplicate records</p>
+              </div>
+
+              {/* Invalid % */}
+              <div>
+                <div className="flex justify-between items-center mb-1 text-xs font-bold">
+                  <span className="text-slate-400">Invalid % (Polluted)</span>
+                  <span className="text-rose-400">{validationMetrics.invalidPct}%</span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-rose-500 to-red-400 transition-all duration-500"
+                    style={{ width: `${validationMetrics.invalidPct}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-slate-400 font-semibold">{validationMetrics.invalid} empty or identical records</p>
               </div>
             </div>
           </div>
@@ -271,7 +392,7 @@ export default function TrainingPage() {
 
         {/* Filters and Exporters */}
         <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 items-end">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6 items-end">
             <div>
               <label className="block text-xs font-black text-slate-500 mb-1">Search Keywords</label>
               <input
@@ -312,7 +433,7 @@ export default function TrainingPage() {
                 className="w-full cursor-pointer accent-blue-500"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="lg:col-span-2 flex gap-2">
               <button
                 onClick={exportToJSON}
                 className="flex-1 rounded-xl bg-slate-900 text-white px-3 py-3 text-xs font-black hover:bg-slate-800 dark:bg-white dark:text-slate-900"
@@ -324,6 +445,12 @@ export default function TrainingPage() {
                 className="flex-1 rounded-xl bg-blue-500 text-white px-3 py-3 text-xs font-black hover:bg-blue-600"
               >
                 Export CSV
+              </button>
+              <button
+                onClick={exportToJSONL}
+                className="flex-1 rounded-xl bg-purple-600 text-white px-3 py-3 text-xs font-black hover:bg-purple-700 transition"
+              >
+                Export JSONL
               </button>
             </div>
           </div>

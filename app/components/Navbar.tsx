@@ -31,18 +31,18 @@ const adminLinks = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
-  const [role, setRole] = useState<"user" | "admin">("admin");
+  const [role, setRole] = useState<"user" | "admin">("user");
 
   const isDev = process.env.NODE_ENV === "development";
 
   useEffect(() => {
     const localRole = localStorage.getItem("wordsly_user_role");
-    let nextRole: "user" | "admin" = "admin";
-    if (localRole === "user") {
-      nextRole = "user";
-    } else {
+    let nextRole: "user" | "admin" = "user";
+    if (localRole === "admin") {
       nextRole = "admin";
-      localStorage.setItem("wordsly_user_role", "admin");
+    } else {
+      nextRole = "user";
+      localStorage.setItem("wordsly_user_role", "user");
     }
     setRole(nextRole);
     document.cookie = `wordsly_user_role=${nextRole}; path=/; max-age=31536000`;

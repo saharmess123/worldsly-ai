@@ -48,6 +48,7 @@ export default function CorpusPage() {
   const [category, setCategory] = useState("All");
   const [selectedModel, setSelectedModel] = useState("All");
   const [minQuality, setMinQuality] = useState(0);
+  const [sortBy, setSortBy] = useState("newest");
 
   // Modals & UI Control
   const [detailItem, setDetailItem] = useState<CorpusItem | null>(null);
@@ -109,7 +110,7 @@ export default function CorpusPage() {
   }, []);
 
   const filteredCorpus = useMemo(() => {
-    return corpusItems.filter((item) => {
+    const filtered = corpusItems.filter((item) => {
       const matchesCategory = category === "All" || item.category === category;
       const matchesModel = selectedModel === "All" || item.model.toLowerCase().includes(selectedModel.toLowerCase());
       const matchesScore = item.qualityScore >= minQuality;
@@ -130,7 +131,33 @@ export default function CorpusPage() {
 
       return matchesCategory && matchesModel && matchesScore && matchesSearch;
     });
-  }, [corpusItems, search, category, selectedModel, minQuality]);
+
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "newest") {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      }
+      if (sortBy === "oldest") {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateA - dateB;
+      }
+      if (sortBy === "quality-desc") {
+        return b.qualityScore - a.qualityScore;
+      }
+      if (sortBy === "quality-asc") {
+        return a.qualityScore - b.qualityScore;
+      }
+      if (sortBy === "title-asc") {
+        return a.title.localeCompare(b.title);
+      }
+      if (sortBy === "title-desc") {
+        return b.title.localeCompare(a.title);
+      }
+      return 0;
+    });
+  }, [corpusItems, search, category, selectedModel, minQuality, sortBy]);
 
   // Statistics Calculations
   const stats = useMemo(() => {
@@ -494,7 +521,7 @@ export default function CorpusPage() {
 
         {/* Filters and Exporters Section */}
         <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 items-end">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6 items-end">
             <div className="lg:col-span-2">
               <label className="block text-xs font-black text-slate-500 mb-1">Search Database</label>
               <input
@@ -522,6 +549,21 @@ export default function CorpusPage() {
                 className="w-full rounded-2xl border border-slate-300 bg-white px-5 py-4 text-sm font-black outline-none dark:border-white/10 dark:bg-slate-950 dark:text-white"
               >
                 {models.map((m) => <option key={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-black text-slate-500 mb-1">Sort By</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-5 py-4 text-sm font-black outline-none dark:border-white/10 dark:bg-slate-950 dark:text-white"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="quality-desc">Quality: High to Low</option>
+                <option value="quality-asc">Quality: Low to High</option>
+                <option value="title-asc">Title: A to Z</option>
+                <option value="title-desc">Title: Z to A</option>
               </select>
             </div>
             <div className="flex flex-col justify-center px-2">

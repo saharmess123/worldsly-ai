@@ -3,8 +3,8 @@ import type { NextRequest } from "next/server";
 
 export function proxy(request: NextRequest) {
   const roleCookie = request.cookies.get("wordsly_user_role");
-  // Default to admin initially if no cookie exists so that fresh preview environments are fully accessible.
-  const role = roleCookie?.value || "admin";
+  // Default to user initially if no cookie exists for robust role protection.
+  const role = roleCookie?.value || "user";
 
   const { pathname } = request.nextUrl;
 
@@ -19,6 +19,12 @@ export function proxy(request: NextRequest) {
     "/training",
     "/architecture",
     "/backend-plan",
+    "/api/corpus",
+    "/api/curation",
+    "/api/discovery",
+    "/api/sources",
+    "/api/training-signals",
+    "/api/analytics",
   ];
 
   const isAdminPath = adminPaths.some(
@@ -26,6 +32,12 @@ export function proxy(request: NextRequest) {
   );
 
   if (isAdminPath && role !== "admin") {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

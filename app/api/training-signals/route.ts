@@ -575,7 +575,7 @@ export async function GET(
         },
       });
 
-    const items = signals.map(
+    const rawItems = signals.map(
       (signal) => ({
         id: signal.id,
         deduplicationKey:
@@ -603,6 +603,63 @@ export async function GET(
       })
     );
 
+    const seenInputs = new Set<string>();
+
+    const items = rawItems.map((item) => {
+      let input = "";
+      let output = "";
+      let category = "General";
+
+      const meta = item.metadata;
+
+      if (item.sourceType === "corpus") {
+        input = typeof meta.prompt === "string" ? meta.prompt.trim() : "";
+        output = typeof meta.improvedVersion === "string" ? meta.improvedVersion.trim() : "";
+        category = typeof meta.category === "string" ? meta.category : "General";
+      } else if (item.sourceType === "feedback" || item.sourceType === "history") {
+        input = typeof meta.originalPrompt === "string" ? meta.originalPrompt.trim() : "";
+        output = typeof meta.improvedPrompt === "string" ? meta.improvedPrompt.trim() : "";
+        category = typeof meta.category === "string" ? meta.category : "General";
+      }
+
+      let isValid = true;
+      let validationError: string | null = null;
+
+      if (!input && !output) {
+        isValid = false;
+        validationError = "Empty input and output prompt";
+      } else if (!input) {
+        isValid = false;
+        validationError = "Empty input prompt";
+      } else if (!output) {
+        isValid = false;
+        validationError = "Empty output prompt";
+      } else if (input === output) {
+        isValid = false;
+        validationError = "Input and output prompts are identical";
+      }
+
+      let isDuplicate = false;
+      if (isValid) {
+        const inputKey = input.toLowerCase();
+        if (seenInputs.has(inputKey)) {
+          isDuplicate = true;
+        } else {
+          seenInputs.add(inputKey);
+        }
+      }
+
+      return {
+        ...item,
+        input,
+        output,
+        category,
+        isValid,
+        validationError,
+        isDuplicate,
+      };
+    });
+
     const averageScore =
       items.length > 0
         ? Math.round(
@@ -613,6 +670,29 @@ export async function GET(
             ) / items.length
           )
         : 0;
+
+    let totalRecords = 0;
+    let validRecords = 0;
+    let invalidRecords = 0;
+    let duplicateRecords = 0;
+
+    items.forEach((item) => {
+      totalRecords++;
+      if (!item.isValid) {
+        invalidRecords++;
+      } else if (item.isDuplicate) {
+        duplicateRecords++;
+      } else {
+        validRecords++;
+      }
+    });
+
+    const summary = {
+      totalRecords,
+      validRecords,
+      invalidRecords,
+      duplicateRecords,
+    };
 
     return NextResponse.json({
       success: true,
@@ -636,6 +716,7 @@ export async function GET(
             "corpus"
         ).length,
       },
+      summary,
     });
   } catch (error) {
     console.error(

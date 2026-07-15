@@ -14,7 +14,7 @@ export default function SettingsPage() {
   const [personalStyle, setPersonalStyle] = useState("");
   const [discoveryFocus, setDiscoveryFocus] = useState("General prompts");
   const [saved, setSaved] = useState(false);
-  const [role, setRole] = useState("admin");
+  const [role, setRole] = useState("user");
 
   useEffect(() => {
     const savedModel = localStorage.getItem("worldsly_preferred_model");
@@ -23,7 +23,7 @@ export default function SettingsPage() {
     const savedFormat = localStorage.getItem("worldsly_output_format");
     const savedStyle = localStorage.getItem("worldsly_personal_style");
     const savedDiscovery = localStorage.getItem("worldsly_discovery_focus");
-    const savedRole = localStorage.getItem("wordsly_user_role") || "admin";
+    const savedRole = localStorage.getItem("wordsly_user_role") || "user";
 
     if (savedModel) setPreferredModel(savedModel);
     if (savedDepth) setOptimizationDepth(savedDepth);
