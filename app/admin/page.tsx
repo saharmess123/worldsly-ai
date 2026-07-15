@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Navbar from "../components/Navbar";
 
-type StatusType = "Completed" | "Active" | "Simulated" | "Planned" | "Future";
+type StatusType = "Completed" | "Active" | "Planned";
 
 type ModuleStatus = {
   id: number;
@@ -16,328 +16,224 @@ type ModuleStatus = {
   route?: string;
 };
 
+type PipelineStage = {
+  key: string;
+  label: string;
+  count: number;
+};
+
 type AnalyticsData = {
+  success: boolean;
   storageMode: string;
+  error?: string;
+  usefulRate: number;
   totals: {
-    totalOptimizations: number;
-    totalFeedback: number;
-    usefulFeedback: number;
-    needsWorkFeedback: number;
-    usefulRate: number;
+    optimizations: number;
+    feedback: number;
+    sources: number;
+    discovery: number;
+    pendingReviews: number;
+    corpus: number;
+    trainingSignals: number;
   };
   scores: {
     averageOriginalScore: number;
     averageImprovedScore: number;
     averageScoreGain: number;
   };
+  sources: {
+    total: number;
+    active: number;
+    paused: number;
+    archived: number;
+    scanned: number;
+    productive: number;
+    averageCredibility: number;
+    averagePromptsPerSource: number;
+    scanningRate: number;
+    productiveRate: number;
+  };
+  discovery: {
+    total: number;
+    pending: number;
+    sentToCuration: number;
+    enteredCuration: number;
+    approved: number;
+    rejected: number;
+    reviewed: number;
+    approvalRate: number;
+    rejectionRate: number;
+  };
+  curation: {
+    pending: number;
+    totalReviews: number;
+    approvedReviews: number;
+    rejectedReviews: number;
+    riskyReviews: number;
+  };
+  corpus: { total: number };
+  training: {
+    totalSignals: number;
+    corpusLinkedSignals: number;
+  };
+  pipeline: {
+    stages: PipelineStage[];
+    conversions: {
+      sourceScanning: number;
+      productiveSources: number;
+      discoveryToCuration: number;
+      curationToCorpus: number;
+      corpusToTraining: number;
+      endToEnd: number;
+    };
+  };
 };
 
 const emptyAnalytics: AnalyticsData = {
+  success: true,
   storageMode: "loading",
+  usefulRate: 0,
   totals: {
-    totalOptimizations: 0,
-    totalFeedback: 0,
-    usefulFeedback: 0,
-    needsWorkFeedback: 0,
-    usefulRate: 0,
+    optimizations: 0,
+    feedback: 0,
+    sources: 0,
+    discovery: 0,
+    pendingReviews: 0,
+    corpus: 0,
+    trainingSignals: 0,
   },
   scores: {
     averageOriginalScore: 0,
     averageImprovedScore: 0,
     averageScoreGain: 0,
   },
+  sources: {
+    total: 0,
+    active: 0,
+    paused: 0,
+    archived: 0,
+    scanned: 0,
+    productive: 0,
+    averageCredibility: 0,
+    averagePromptsPerSource: 0,
+    scanningRate: 0,
+    productiveRate: 0,
+  },
+  discovery: {
+    total: 0,
+    pending: 0,
+    sentToCuration: 0,
+    enteredCuration: 0,
+    approved: 0,
+    rejected: 0,
+    reviewed: 0,
+    approvalRate: 0,
+    rejectionRate: 0,
+  },
+  curation: {
+    pending: 0,
+    totalReviews: 0,
+    approvedReviews: 0,
+    rejectedReviews: 0,
+    riskyReviews: 0,
+  },
+  corpus: { total: 0 },
+  training: {
+    totalSignals: 0,
+    corpusLinkedSignals: 0,
+  },
+  pipeline: {
+    stages: [
+      { key: "sources", label: "Sources", count: 0 },
+      { key: "discovery", label: "Discovery", count: 0 },
+      { key: "curation", label: "Curation", count: 0 },
+      { key: "corpus", label: "Corpus", count: 0 },
+      { key: "training", label: "Training", count: 0 },
+    ],
+    conversions: {
+      sourceScanning: 0,
+      productiveSources: 0,
+      discoveryToCuration: 0,
+      curationToCorpus: 0,
+      corpusToTraining: 0,
+      endToEnd: 0,
+    },
+  },
 };
 
 const modules: ModuleStatus[] = [
   {
     id: 1,
-    name: "Frontend MVP",
-    area: "Core Product",
-    status: "Completed",
-    readiness: 95,
-    description:
-      "The main interface, navigation, product flow, pages, dark/light theme, and demo structure are built.",
-    nextAction: "Continue polishing UI and connect more pages to backend APIs.",
-    route: "/",
-  },
-  {
-    id: 2,
-    name: "Prompt Optimizer",
-    area: "Core Feature",
-    status: "Active",
-    readiness: 85,
-    description:
-      "Users can enter prompts, select model/goal/depth/format, receive scores, improved prompts, variants, explanations, and feedback options.",
-    nextAction: "Connect a real AI API to replace the mock optimization engine.",
-    route: "/prompt-optimizer",
-  },
-  {
-    id: 3,
-    name: "Optimize API",
-    area: "Backend",
-    status: "Active",
-    readiness: 80,
-    description:
-      "The optimizer is connected to a Next.js API route. It currently uses a mock prompt improvement engine.",
-    nextAction: "Replace mock logic with real AI model calls.",
-    route: "/api-status",
-  },
-  {
-    id: 4,
-    name: "Score API",
-    area: "Backend",
-    status: "Active",
-    readiness: 78,
-    description:
-      "Prompt scoring is available through an API route and can be tested from the API Status page.",
-    nextAction: "Improve scoring with AI evaluation and stronger rubric logic.",
-    route: "/api-status",
-  },
-  {
-    id: 5,
-    name: "SQLite Database",
-    area: "Data Layer",
-    status: "Completed",
-    readiness: 82,
-    description:
-      "SQLite is connected using Prisma. History, feedback, and analytics can now persist after server restart.",
-    nextAction: "Add more tables for sources, corpus, users, and training signals.",
-    route: "/database-setup",
-  },
-  {
-    id: 6,
-    name: "History API",
-    area: "Backend",
-    status: "Completed",
-    readiness: 88,
-    description:
-      "Saved optimizations are now written to and read from SQLite using Prisma.",
-    nextAction: "Add single-record delete and user-specific history after authentication.",
-    route: "/history",
-  },
-  {
-    id: 7,
-    name: "Feedback API",
-    area: "Learning Loop",
-    status: "Completed",
-    readiness: 88,
-    description:
-      "Useful and needs-work feedback are now saved in SQLite using Prisma.",
-    nextAction: "Connect feedback records to specific optimization IDs later.",
-    route: "/feedback",
-  },
-  {
-    id: 8,
-    name: "Analytics API",
-    area: "Backend",
-    status: "Completed",
-    readiness: 86,
-    description:
-      "The analytics API calculates total optimizations, feedback totals, useful rate, and average score improvement from SQLite.",
-    nextAction: "Add category-based analytics and charts later.",
-    route: "/dashboard",
-  },
-  {
-    id: 9,
-    name: "API Status Monitor",
-    area: "Dev Tools",
-    status: "Completed",
-    readiness: 84,
-    description:
-      "The API Status page checks optimize, score, history, feedback, and analytics routes.",
-    nextAction: "Add auth, database ping, and AI provider health checks later.",
-    route: "/api-status",
-  },
-  {
-    id: 10,
-    name: "Seed Demo API",
-    area: "Dev Tools",
-    status: "Completed",
-    readiness: 83,
-    description:
-      "The seed demo API can insert and clear demo optimization and feedback records for presentations.",
-    nextAction: "Keep it as an internal admin/demo tool and protect it later with authentication.",
-    route: "/admin",
-  },
-  {
-    id: 11,
-    name: "Sources Manager",
+    name: "Source Scanning",
     area: "Discovery",
-    status: "Simulated",
-    readiness: 75,
+    status: "Completed",
+    readiness: 92,
     description:
-      "Shows future discovery sources such as Reddit, X, GitHub, blogs, research papers, prompt communities, and agent forums.",
-    nextAction: "Connect real source ingestion and scanning system.",
+      "Active sources generate source-linked discovered prompts and update their scan metadata.",
+    nextAction: "Replace mock scans with real connectors.",
     route: "/sources",
   },
   {
-    id: 12,
+    id: 2,
     name: "Discovery Layer",
     area: "Discovery",
-    status: "Simulated",
-    readiness: 72,
+    status: "Active",
+    readiness: 88,
     description:
-      "Demonstrates discovered prompt examples, source metadata, quality score, category, model, and detected prompt patterns.",
-    nextAction: "Build real web discovery pipeline and source connectors.",
+      "Prompts can be scored, filtered, approved, rejected, or sent to Curation.",
+    nextAction: "Add stronger duplicate detection.",
     route: "/discovery",
   },
   {
-    id: 13,
-    name: "Curation Queue",
+    id: 3,
+    name: "Curation Pipeline",
     area: "Quality Control",
-    status: "Simulated",
-    readiness: 78,
+    status: "Completed",
+    readiness: 92,
     description:
-      "Shows how discovered prompts can be reviewed, approved, or rejected before entering the corpus.",
-    nextAction: "Connect curation workflow to backend and database.",
+      "Approved prompts automatically enter the Corpus and create curated training signals.",
+    nextAction: "Add reviewer assignment and audit history.",
     route: "/curation",
   },
   {
-    id: 14,
+    id: 4,
     name: "Prompt Corpus",
     area: "Data Layer",
-    status: "Simulated",
-    readiness: 76,
+    status: "Active",
+    readiness: 88,
     description:
-      "Represents the curated prompt database with approved prompts, categories, scores, model metadata, and extracted patterns.",
-    nextAction: "Create real corpus API routes and connect them to Prisma.",
+      "The clean prompt dataset stores source, review, quality, and model metadata.",
+    nextAction: "Add version history, tags, and edit support.",
     route: "/corpus",
   },
   {
-    id: 15,
-    name: "Settings Memory",
-    area: "Personalization",
-    status: "Simulated",
-    readiness: 75,
-    description: "Preferences are still mainly saved in browser localStorage.",
-    nextAction: "Move settings to the database after authentication is added.",
-    route: "/settings",
-  },
-  {
-    id: 16,
-    name: "Authentication",
-    area: "Security",
-    status: "Planned",
-    readiness: 10,
-    description:
-      "User accounts, login, signup, sessions, roles, and premium access are not connected yet.",
-    nextAction: "Add authentication after core database APIs are stable.",
-  },
-  {
-    id: 17,
-    name: "PromptMaster Training",
+    id: 5,
+    name: "Training Dataset",
     area: "PromptMaster",
-    status: "Future",
-    readiness: 35,
+    status: "Active",
+    readiness: 84,
     description:
-      "Preview page explains future PromptMaster training using curated prompts, feedback signals, and optimization history.",
-    nextAction:
-      "Prepare training datasets after corpus, feedback, and discovery systems are real.",
+      "Feedback, optimization history, and curated prompts generate duplicate-safe signals.",
+    nextAction: "Create validated input/output pairs.",
     route: "/training",
   },
-];
-
-const priorities = [
   {
-    title: "Real AI API Integration",
-    level: "Highest Priority",
+    id: 6,
+    name: "Local AI Runtime",
+    area: "AI Runtime",
+    status: "Planned",
+    readiness: 20,
     description:
-      "Connect a real AI model so prompt optimization and scoring become real instead of mock logic.",
-    icon: "🤖",
-  },
-  {
-    title: "Seed Demo Data",
-    level: "Done / Admin Tool",
-    description:
-      "Admin can now insert and clear demo optimizations and feedback from the UI.",
-    icon: "🌱",
-  },
-  {
-    title: "Single Record Delete",
-    level: "High Priority",
-    description:
-      "Add delete-by-id for history and feedback records instead of only clearing all records.",
-    icon: "🧹",
-  },
-  {
-    title: "Authentication",
-    level: "Medium Priority",
-    description:
-      "Add user accounts, login, sessions, and later premium access control.",
-    icon: "🔐",
-  },
-  {
-    title: "Real Discovery Pipeline",
-    level: "Later Phase",
-    description:
-      "Build actual source scanning from the open web and specialized prompt communities.",
-    icon: "🌐",
-  },
-  {
-    title: "PromptMaster Training",
-    level: "Future Phase",
-    description:
-      "Prepare real training data from curated prompts, feedback, and successful optimization patterns.",
-    icon: "🧠",
-  },
-];
-
-const activityItems = [
-  {
-    id: 1,
-    type: "Database",
-    title: "SQLite database connected",
-    detail:
-      "Prisma + SQLite is now connected and used by history, feedback, and analytics APIs.",
-    createdAt: "Current phase",
-  },
-  {
-    id: 2,
-    type: "Backend",
-    title: "API routes are active",
-    detail:
-      "Optimize, score, history, feedback, analytics, and seed demo routes are now available.",
-    createdAt: "Current phase",
-  },
-  {
-    id: 3,
-    type: "Frontend",
-    title: "Dashboard, history, feedback, and admin updated",
-    detail:
-      "Main pages now read backend data from SQLite instead of browser localStorage.",
-    createdAt: "Current phase",
-  },
-  {
-    id: 4,
-    type: "Demo",
-    title: "Admin demo controls added",
-    detail:
-      "The Admin page can now seed and clear demo SQLite records for presentations.",
-    createdAt: "Current phase",
-  },
-  {
-    id: 5,
-    type: "Next",
-    title: "Real AI still pending",
-    detail:
-      "The next major step is replacing mock optimization with a real AI provider.",
-    createdAt: "Next phase",
+      "OpenAI, Ollama, Qwen, Llama, and PromptMaster will share one provider interface.",
+    nextAction: "Implement the provider layer and connect Ollama.",
+    route: "/architecture",
   },
 ];
 
 function getStatusClasses(status: StatusType) {
   if (status === "Completed") return "bg-emerald-500/10 text-emerald-500";
   if (status === "Active") return "bg-cyan-500/10 text-cyan-500";
-  if (status === "Simulated") return "bg-blue-500/10 text-blue-500";
-  if (status === "Planned") return "bg-amber-500/10 text-amber-500";
-  return "bg-fuchsia-500/10 text-fuchsia-500";
-}
-
-function getReadinessLabel(score: number) {
-  if (score >= 85) return "Strong";
-  if (score >= 65) return "Good MVP";
-  if (score >= 35) return "Preview";
-  return "Not started";
+  return "bg-amber-500/10 text-amber-500";
 }
 
 export default function AdminPage() {
@@ -348,7 +244,7 @@ export default function AdminPage() {
   const [isSeeding, setIsSeeding] = useState(false);
   const [isClearingDemo, setIsClearingDemo] = useState(false);
   const [error, setError] = useState("");
-  const [adminMessage, setAdminMessage] = useState("");
+  const [message, setMessage] = useState("");
 
   async function loadAnalytics() {
     try {
@@ -362,13 +258,17 @@ export default function AdminPage() {
 
       const data = (await response.json()) as AnalyticsData;
 
-      if (!response.ok) {
-        throw new Error("Failed to load analytics.");
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to load pipeline analytics.");
       }
 
       setAnalytics(data);
-    } catch {
-      setError("Could not load SQLite analytics.");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load pipeline analytics."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -378,53 +278,49 @@ export default function AdminPage() {
     try {
       setIsSeeding(true);
       setError("");
-      setAdminMessage("");
+      setMessage("");
 
-      const response = await fetch("/api/seed-demo", {
-        method: "POST",
-      });
-
+      const response = await fetch("/api/seed-demo", { method: "POST" });
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to seed demo data.");
       }
 
-      setAdminMessage("Demo data inserted successfully.");
+      setMessage("Demo data inserted successfully.");
       await loadAnalytics();
-    } catch {
-      setError("Could not insert demo data.");
+    } catch (seedError) {
+      setError(
+        seedError instanceof Error ? seedError.message : "Could not seed data."
+      );
     } finally {
       setIsSeeding(false);
     }
   }
 
   async function clearDemoData() {
-    const confirmed = confirm(
-      "Are you sure you want to clear all demo optimizations and feedback?"
-    );
-
-    if (!confirmed) return;
+    if (!window.confirm("Clear all demo optimizations and feedback?")) return;
 
     try {
       setIsClearingDemo(true);
       setError("");
-      setAdminMessage("");
+      setMessage("");
 
-      const response = await fetch("/api/seed-demo", {
-        method: "DELETE",
-      });
-
+      const response = await fetch("/api/seed-demo", { method: "DELETE" });
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to clear demo data.");
       }
 
-      setAdminMessage("Demo data cleared successfully.");
+      setMessage("Demo data cleared successfully.");
       await loadAnalytics();
-    } catch {
-      setError("Could not clear demo data.");
+    } catch (clearError) {
+      setError(
+        clearError instanceof Error
+          ? clearError.message
+          : "Could not clear demo data."
+      );
     } finally {
       setIsClearingDemo(false);
     }
@@ -434,265 +330,260 @@ export default function AdminPage() {
     loadAnalytics();
   }, []);
 
-  const completedCount = modules.filter(
-    (item) => item.status === "Completed"
-  ).length;
-
-  const activeCount = modules.filter((item) => item.status === "Active").length;
-
-  const simulatedCount = modules.filter(
-    (item) => item.status === "Simulated"
-  ).length;
-
-  const plannedCount = modules.filter((item) => item.status === "Planned").length;
-
-  const futureCount = modules.filter((item) => item.status === "Future").length;
-
-  const averageReadiness = Math.round(
-    modules.reduce((sum, item) => sum + item.readiness, 0) / modules.length
-  );
-
   const filteredModules = useMemo(() => {
     return modules.filter((item) => {
       const matchesStatus =
         statusFilter === "All" || item.status === statusFilter;
 
-      const searchText = `
-        ${item.name}
-        ${item.area}
-        ${item.status}
-        ${item.description}
-        ${item.nextAction}
-      `.toLowerCase();
-
-      const matchesSearch = searchText.includes(search.toLowerCase());
-
-      return matchesStatus && matchesSearch;
+      const text = `${item.name} ${item.area} ${item.description} ${item.nextAction}`.toLowerCase();
+      return matchesStatus && text.includes(search.toLowerCase());
     });
   }, [search, statusFilter]);
+
+  const conversionCards = [
+    {
+      label: "Sources Scanned",
+      value: analytics.pipeline.conversions.sourceScanning,
+    },
+    {
+      label: "Productive Sources",
+      value: analytics.pipeline.conversions.productiveSources,
+    },
+    {
+      label: "Discovery → Curation",
+      value: analytics.pipeline.conversions.discoveryToCuration,
+    },
+    {
+      label: "Curation → Corpus",
+      value: analytics.pipeline.conversions.curationToCorpus,
+    },
+    {
+      label: "Corpus → Training",
+      value: analytics.pipeline.conversions.corpusToTraining,
+    },
+    {
+      label: "End-to-End",
+      value: analytics.pipeline.conversions.endToEnd,
+    },
+  ];
+
+  const metricCards = [
+    ["Sources", analytics.totals.sources],
+    ["Discovered", analytics.totals.discovery],
+    ["Pending Reviews", analytics.totals.pendingReviews],
+    ["Approved", analytics.discovery.approved],
+    ["Rejected", analytics.discovery.rejected],
+    ["Corpus", analytics.totals.corpus],
+    ["Training Signals", analytics.totals.trainingSignals],
+  ];
 
   return (
     <main className="min-h-screen overflow-hidden bg-slate-100 px-6 py-6 text-slate-950 transition dark:bg-[#030712] dark:text-white">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute left-[-180px] top-[-160px] h-[520px] w-[520px] rounded-full bg-blue-500/25 blur-[140px]" />
         <div className="absolute right-[-180px] top-[120px] h-[520px] w-[520px] rounded-full bg-fuchsia-500/20 blur-[140px]" />
-        <div className="absolute bottom-[-180px] left-[30%] h-[520px] w-[520px] rounded-full bg-cyan-400/20 blur-[140px]" />
       </div>
 
       <section className="relative mx-auto max-w-7xl">
         <Navbar />
 
-        {error ? (
+        {error && (
           <div className="mb-6 rounded-3xl border border-red-500/20 bg-red-500/10 p-5 text-sm font-bold text-red-500">
             {error}
           </div>
-        ) : null}
+        )}
 
-        {adminMessage ? (
+        {message && (
           <div className="mb-6 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-sm font-bold text-emerald-500">
-            {adminMessage}
+            {message}
           </div>
-        ) : null}
+        )}
 
         <div className="mb-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="relative overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white/80 p-8 shadow-2xl shadow-slate-300/30 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/30">
-            <div className="absolute right-[-100px] top-[-100px] h-80 w-80 rounded-full bg-blue-500/20 blur-3xl" />
-            <div className="absolute bottom-[-120px] left-[30%] h-80 w-80 rounded-full bg-cyan-400/20 blur-3xl" />
+          <div className="rounded-[2.5rem] border border-slate-200 bg-white/80 p-8 shadow-2xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-sm font-black text-blue-500">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              Pipeline Analytics Dashboard
+            </div>
 
-            <div className="relative">
-              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-sm font-black text-blue-500">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/60" />
-                Admin Control Center
-              </div>
+            <h1 className="max-w-4xl text-4xl font-black leading-tight md:text-6xl">
+              Track the complete Wordsly.AI intelligence pipeline.
+            </h1>
 
-              <h1 className="max-w-4xl text-4xl font-black leading-tight tracking-tight md:text-6xl">
-                Track the real status of the Wordsly.Ai MVP.
-              </h1>
+            <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600 dark:text-slate-300">
+              Monitor Sources, Discovery, Curation, Corpus, and Training using
+              real SQLite data and conversion metrics.
+            </p>
 
-              <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600 dark:text-slate-300">
-                This page now reads SQLite analytics and includes admin controls
-                to seed or clear demo records for presentations.
-              </p>
+            <div className="mt-8 flex flex-wrap gap-4">
+              <button
+                onClick={loadAnalytics}
+                disabled={isLoading}
+                className="rounded-2xl bg-blue-500 px-6 py-4 font-black text-white disabled:opacity-60"
+              >
+                {isLoading ? "Refreshing..." : "Refresh Pipeline"}
+              </button>
 
-              <div className="mt-8 flex flex-col flex-wrap gap-4 sm:flex-row">
-                <a
-                  href="/dashboard"
-                  className="rounded-2xl bg-blue-500 px-6 py-4 text-center font-black text-white shadow-xl shadow-blue-500/30 transition hover:-translate-y-1 hover:bg-blue-600"
-                >
-                  Open Dashboard
-                </a>
+              <a
+                href="/sources"
+                className="rounded-2xl border border-slate-300 bg-white/70 px-6 py-4 font-black dark:border-white/10 dark:bg-white/5"
+              >
+                Open Sources
+              </a>
 
-                <button
-                  type="button"
-                  onClick={loadAnalytics}
-                  className="rounded-2xl border border-slate-300 bg-white/70 px-6 py-4 text-center font-black text-slate-900 shadow-lg shadow-slate-300/20 transition hover:-translate-y-1 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-black/20 dark:hover:bg-white/10"
-                >
-                  {isLoading ? "Refreshing..." : "Refresh Admin Data"}
-                </button>
+              <a
+                href="/training"
+                className="rounded-2xl border border-slate-300 bg-white/70 px-6 py-4 font-black dark:border-white/10 dark:bg-white/5"
+              >
+                Open Training
+              </a>
 
-                <a
-                  href="/api-status"
-                  className="rounded-2xl border border-slate-300 bg-white/70 px-6 py-4 text-center font-black text-slate-900 shadow-lg shadow-slate-300/20 transition hover:-translate-y-1 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-black/20 dark:hover:bg-white/10"
-                >
-                  API Status
-                </a>
+              <button
+                onClick={seedDemoData}
+                disabled={isSeeding}
+                className="rounded-2xl bg-emerald-500 px-6 py-4 font-black text-white disabled:opacity-60"
+              >
+                {isSeeding ? "Seeding..." : "Seed Demo Data"}
+              </button>
 
-                <button
-                  type="button"
-                  onClick={seedDemoData}
-                  disabled={isSeeding}
-                  className="rounded-2xl bg-emerald-500 px-6 py-4 text-center font-black text-white shadow-xl shadow-emerald-500/30 transition hover:-translate-y-1 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                >
-                  {isSeeding ? "Seeding..." : "Seed Demo Data"}
-                </button>
+              <button
+                onClick={clearDemoData}
+                disabled={isClearingDemo}
+                className="rounded-2xl bg-red-500 px-6 py-4 font-black text-white disabled:opacity-60"
+              >
+                {isClearingDemo ? "Clearing..." : "Clear Demo Data"}
+              </button>
+            </div>
 
-                <button
-                  type="button"
-                  onClick={clearDemoData}
-                  disabled={isClearingDemo}
-                  className="rounded-2xl bg-red-500 px-6 py-4 text-center font-black text-white shadow-xl shadow-red-500/30 transition hover:-translate-y-1 hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                >
-                  {isClearingDemo ? "Clearing..." : "Clear Demo Data"}
-                </button>
-              </div>
-
-              <div className="mt-5 inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm font-black text-emerald-500">
-                Storage: {analytics.storageMode}
-              </div>
+            <div className="mt-5 inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm font-black text-emerald-500">
+              Storage: {analytics.storageMode}
             </div>
           </div>
 
-          <div className="rounded-[2.5rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-300/30 dark:border-white/10 dark:bg-white/5 dark:shadow-black/30">
-            <h2 className="text-2xl font-black">System Readiness</h2>
+          <div className="rounded-[2.5rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-2xl dark:border-white/10 dark:bg-white/5">
+            <h2 className="text-2xl font-black">Pipeline Health</h2>
 
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              Overall MVP status based on current modules.
-            </p>
+            <div className="mt-6 grid grid-cols-2 gap-4">
+              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
+                <p className="text-sm font-bold text-slate-400">Approval Rate</p>
+                <h3 className="mt-2 text-4xl font-black text-emerald-300">
+                  {analytics.discovery.approvalRate}%
+                </h3>
+              </div>
 
-            <div className="mt-6 rounded-3xl border border-white/10 bg-white/10 p-5">
-              <p className="text-sm font-bold text-slate-400">
-                Readiness Score
+              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
+                <p className="text-sm font-bold text-slate-400">Rejection Rate</p>
+                <h3 className="mt-2 text-4xl font-black text-red-300">
+                  {analytics.discovery.rejectionRate}%
+                </h3>
+              </div>
+
+              <div className="col-span-2 rounded-3xl border border-white/10 bg-white/10 p-5">
+                <p className="text-sm font-bold text-slate-400">
+                  End-to-End Conversion
+                </p>
+                <h3 className="mt-2 text-5xl font-black text-fuchsia-300">
+                  {analytics.pipeline.conversions.endToEnd}%
+                </h3>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-7">
+          {metricCards.map(([label, value]) => (
+            <div
+              key={String(label)}
+              className="rounded-[2rem] border border-slate-200 bg-white/80 p-5 shadow-xl dark:border-white/10 dark:bg-white/5"
+            >
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                {label}
               </p>
+              <h3 className="mt-2 text-4xl font-black">{value}</h3>
+            </div>
+          ))}
+        </div>
 
-              <h3 className="mt-2 text-6xl font-black text-blue-300">
-                {averageReadiness}%
-              </h3>
+        <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white/80 p-7 shadow-xl dark:border-white/10 dark:bg-white/5">
+          <h2 className="text-3xl font-black">Live Intelligence Pipeline</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            Current record volume at every internal stage.
+          </p>
 
-              <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
+          <div className="mt-6 grid gap-4 lg:grid-cols-5">
+            {analytics.pipeline.stages.map((stage, index) => (
+              <div key={stage.key} className="relative">
+                <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-6 text-center">
+                  <p className="text-sm font-black text-blue-600 dark:text-blue-300">
+                    {stage.label}
+                  </p>
+                  <h3 className="mt-2 text-5xl font-black">{stage.count}</h3>
+                </div>
+
+                {index < analytics.pipeline.stages.length - 1 && (
+                  <div className="mt-2 text-center text-2xl font-black text-blue-500 lg:absolute lg:-right-4 lg:top-1/2 lg:mt-0 lg:-translate-y-1/2">
+                    →
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {conversionCards.map((item) => (
+            <div
+              key={item.label}
+              className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl dark:border-white/10 dark:bg-white/5"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="font-black">{item.label}</h3>
+                <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-black text-emerald-500">
+                  {item.value}%
+                </span>
+              </div>
+
+              <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
                 <div
-                  className="h-full rounded-full bg-blue-400"
-                  style={{ width: `${averageReadiness}%` }}
+                  className="h-full rounded-full bg-blue-500"
+                  style={{ width: `${item.value}%` }}
                 />
               </div>
-
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                Frontend and database MVP are now strong. Real AI and
-                authentication are the next major phases.
-              </p>
             </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-4">
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Completed</p>
-                <h3 className="mt-2 text-4xl font-black text-emerald-300">
-                  {completedCount}
-                </h3>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Active</p>
-                <h3 className="mt-2 text-4xl font-black text-cyan-300">
-                  {activeCount}
-                </h3>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Simulated</p>
-                <h3 className="mt-2 text-4xl font-black text-blue-300">
-                  {simulatedCount}
-                </h3>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                <p className="text-sm font-bold text-slate-400">Planned</p>
-                <h3 className="mt-2 text-4xl font-black text-amber-300">
-                  {plannedCount + futureCount}
-                </h3>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
 
-        <div className="mb-8 grid gap-6 lg:grid-cols-4">
-          <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
-            <p className="text-sm font-black text-slate-500">
-              Saved Optimizations
-            </p>
-            <h3 className="mt-2 text-5xl font-black">
-              {analytics.totals.totalOptimizations}
-            </h3>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-              SQLite optimization records.
-            </p>
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
-            <p className="text-sm font-black text-slate-500">Feedback</p>
-            <h3 className="mt-2 text-5xl font-black">
-              {analytics.totals.totalFeedback}
-            </h3>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-              SQLite feedback records.
-            </p>
-          </div>
-
-          <div className="rounded-[2rem] border border-emerald-500/20 bg-emerald-500/10 p-6 shadow-xl shadow-emerald-500/10 backdrop-blur-2xl">
-            <p className="text-sm font-black text-emerald-600 dark:text-emerald-300">
-              Useful Rate
-            </p>
-            <h3 className="mt-2 text-5xl font-black">
-              {analytics.totals.usefulRate}%
-            </h3>
-            <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-              Positive learning signals.
-            </p>
-          </div>
-
-          <div className="rounded-[2rem] border border-blue-500/20 bg-blue-500/10 p-6 shadow-xl shadow-blue-500/10 backdrop-blur-2xl">
-            <p className="text-sm font-black text-blue-600 dark:text-blue-300">
-              Avg Score Gain
-            </p>
-            <h3 className="mt-2 text-5xl font-black">
-              +{analytics.scores.averageScoreGain}
-            </h3>
-            <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-              Average optimization improvement.
-            </p>
-          </div>
+        <div className="mb-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <Metric title="Useful Rate" value={`${analytics.usefulRate}%`} />
+          <Metric
+            title="Average Score Gain"
+            value={`+${analytics.scores.averageScoreGain}`}
+          />
+          <Metric
+            title="Average Credibility"
+            value={`${analytics.sources.averageCredibility}%`}
+          />
+          <Metric
+            title="Corpus-linked Signals"
+            value={analytics.training.corpusLinkedSignals}
+          />
         </div>
 
-        <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-5 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
+        <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-5 dark:border-white/10 dark:bg-white/5">
           <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search modules, areas, next actions..."
-              className="w-full rounded-2xl border border-slate-300 bg-white px-5 py-4 text-sm font-bold outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-white/10 dark:bg-slate-950 dark:text-white"
+              placeholder="Search modules..."
+              className="rounded-2xl border border-slate-300 bg-white px-5 py-4 text-sm font-bold dark:border-white/10 dark:bg-slate-950"
             />
 
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className="rounded-2xl border border-slate-300 bg-white px-5 py-4 text-sm font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-white/10 dark:bg-slate-950 dark:text-white"
+              className="rounded-2xl border border-slate-300 bg-white px-5 py-4 text-sm font-black dark:border-white/10 dark:bg-slate-950"
             >
-              {[
-                "All",
-                "Completed",
-                "Active",
-                "Simulated",
-                "Planned",
-                "Future",
-              ].map((item) => (
+              {["All", "Completed", "Active", "Planned"].map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>
@@ -703,15 +594,14 @@ export default function AdminPage() {
           {filteredModules.map((module) => (
             <div
               key={module.id}
-              className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl shadow-slate-300/20 backdrop-blur-2xl transition hover:-translate-y-1 hover:border-blue-500/60 dark:border-white/10 dark:bg-white/5 dark:shadow-black/20"
+              className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl dark:border-white/10 dark:bg-white/5"
             >
-              <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+              <div className="flex flex-col justify-between gap-5 lg:flex-row">
                 <div>
                   <div className="mb-3 flex flex-wrap gap-2">
                     <span className="rounded-full bg-slate-500/10 px-3 py-1 text-xs font-black text-slate-500 dark:text-slate-300">
                       {module.area}
                     </span>
-
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClasses(
                         module.status
@@ -719,42 +609,32 @@ export default function AdminPage() {
                     >
                       {module.status}
                     </span>
-
-                    <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-black text-blue-500">
-                      {getReadinessLabel(module.readiness)}
-                    </span>
                   </div>
 
                   <h2 className="text-3xl font-black">{module.name}</h2>
-
                   <p className="mt-3 max-w-4xl text-sm leading-7 text-slate-600 dark:text-slate-400">
                     {module.description}
                   </p>
                 </div>
 
-                <div className="shrink-0 rounded-3xl bg-slate-950 p-5 text-center text-white dark:bg-white dark:text-slate-950">
+                <div className="rounded-3xl bg-slate-950 p-5 text-center text-white dark:bg-white dark:text-slate-950">
                   <p className="text-xs font-black">Readiness</p>
-                  <p className="mt-1 text-4xl font-black">
-                    {module.readiness}%
-                  </p>
+                  <p className="mt-1 text-4xl font-black">{module.readiness}%</p>
                 </div>
               </div>
 
-              <div className="grid gap-5 lg:grid-cols-[1fr_auto]">
+              <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_auto]">
                 <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
                   <h3 className="font-black text-blue-700 dark:text-blue-300">
                     Next Action
                   </h3>
-
-                  <p className="mt-2 text-sm leading-7 text-slate-700 dark:text-slate-300">
-                    {module.nextAction}
-                  </p>
+                  <p className="mt-2 text-sm leading-7">{module.nextAction}</p>
                 </div>
 
                 {module.route && (
                   <a
                     href={module.route}
-                    className="flex items-center justify-center rounded-3xl bg-blue-500 px-6 py-4 text-center text-sm font-black text-white shadow-lg shadow-blue-500/20 transition hover:-translate-y-1 hover:bg-blue-600 lg:min-w-[180px]"
+                    className="flex items-center justify-center rounded-3xl bg-blue-500 px-6 py-4 text-sm font-black text-white lg:min-w-[180px]"
                   >
                     Open Module
                   </a>
@@ -763,101 +643,22 @@ export default function AdminPage() {
             </div>
           ))}
         </div>
-
-        <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_0.8fr]">
-          <div className="rounded-[2.5rem] border border-slate-200 bg-white/80 p-7 shadow-xl shadow-slate-300/20 backdrop-blur-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
-            <h2 className="text-3xl font-black">Next Priorities</h2>
-
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600 dark:text-slate-400">
-              Recommended order for moving from database MVP to real product
-              functionality.
-            </p>
-
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {priorities.map((priority) => (
-                <div
-                  key={priority.title}
-                  className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-slate-950/60"
-                >
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div className="text-4xl">{priority.icon}</div>
-                    <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-black text-blue-500">
-                      {priority.level}
-                    </span>
-                  </div>
-
-                  <h3 className="text-xl font-black">{priority.title}</h3>
-
-                  <p className="mt-3 text-sm leading-7 text-slate-600 dark:text-slate-400">
-                    {priority.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-[2.5rem] border border-slate-200 bg-slate-950 p-7 text-white shadow-xl shadow-slate-300/20 dark:border-white/10 dark:bg-white/5 dark:shadow-black/20">
-            <h2 className="text-3xl font-black">Recent Admin Notes</h2>
-
-            <p className="mt-3 text-sm leading-7 text-slate-400">
-              Current project status summarized for internal review.
-            </p>
-
-            <div className="mt-6 space-y-4">
-              {activityItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-3xl border border-white/10 bg-white/10 p-5"
-                >
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <span className="rounded-full bg-blue-500/20 px-3 py-1 text-xs font-black text-blue-300">
-                      {item.type}
-                    </span>
-                    <span className="text-xs font-bold text-slate-400">
-                      {item.createdAt}
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-black">{item.title}</h3>
-
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
-                    {item.detail}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-10 rounded-[2.5rem] bg-slate-950 p-8 text-center text-white shadow-2xl shadow-blue-500/20">
-          <h2 className="mx-auto max-w-3xl text-4xl font-black leading-tight">
-            The frontend and database MVP are working. The real AI engine is
-            next.
-          </h2>
-
-          <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-300">
-            Wordsly.Ai now has real SQLite persistence for optimization history,
-            feedback, and analytics. Admin can also seed or clear demo records
-            for presentations.
-          </p>
-
-          <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
-            <a
-              href="/architecture"
-              className="rounded-2xl bg-white px-7 py-4 text-center font-black text-slate-950 transition hover:bg-blue-50"
-            >
-              View Architecture
-            </a>
-
-            <a
-              href="/roadmap"
-              className="rounded-2xl border border-white/20 bg-white/10 px-7 py-4 text-center font-black text-white transition hover:bg-white/20"
-            >
-              View Roadmap
-            </a>
-          </div>
-        </div>
       </section>
     </main>
+  );
+}
+
+function Metric({
+  title,
+  value,
+}: {
+  title: string;
+  value: string | number;
+}) {
+  return (
+    <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl dark:border-white/10 dark:bg-white/5">
+      <p className="text-sm font-black text-slate-500">{title}</p>
+      <h3 className="mt-2 text-5xl font-black">{value}</h3>
+    </div>
   );
 }

@@ -1,7 +1,9 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+
 import { prisma } from "../../lib/prisma";
 
-function formatOptimizationItem(item: {
+type OptimizationItem = {
   id: string;
   originalPrompt: string;
   improvedPrompt: string;
@@ -14,7 +16,35 @@ function formatOptimizationItem(item: {
   improvedScore: number;
   engineStatus: string;
   createdAt: Date;
-}) {
+};
+
+type FeedbackItem = {
+  id: string;
+  rating: string;
+  originalPrompt: string;
+  improvedPrompt: string;
+  category: string;
+  model: string;
+  goal: string;
+  depth: string;
+  outputFormat: string;
+  engineStatus: string;
+  createdAt: Date;
+};
+
+async function requireAdmin(): Promise<boolean> {
+  const cookieStore = await cookies();
+
+  const role =
+    cookieStore.get("wordsly_user_role")?.value ||
+    "admin";
+
+  return role === "admin";
+}
+
+function formatOptimizationItem(
+  item: OptimizationItem
+) {
   return {
     id: item.id,
     tool: "Prompt Optimizer",
@@ -28,74 +58,121 @@ function formatOptimizationItem(item: {
     outputFormat: item.outputFormat,
     originalScore: item.originalScore,
     improvedScore: item.improvedScore,
-    scoreGain: item.improvedScore - item.originalScore,
+    scoreGain:
+      item.improvedScore -
+      item.originalScore,
     engineStatus: item.engineStatus,
-    mode: item.engineStatus === "real_ai" ? "real" : "mock",
+    mode:
+      item.engineStatus === "real_ai"
+        ? "real"
+        : "mock",
     aiProvider:
-      item.engineStatus === "real_ai" ? "openai" : "mock",
+      item.engineStatus === "real_ai"
+        ? "openai"
+        : "mock",
     storageMode: "sqlite_prisma",
-    createdAt: item.createdAt.toLocaleString(),
+    createdAt:
+      item.createdAt.toISOString(),
   };
 }
 
-function formatFeedbackItem(item: {
-  id: string;
-  rating: string;
-  originalPrompt: string;
-  improvedPrompt: string;
-  category: string;
-  model: string;
-  goal: string;
-  depth: string;
-  outputFormat: string;
-  engineStatus: string;
-  createdAt: Date;
-}) {
+function formatFeedbackItem(
+  item: FeedbackItem
+) {
   return {
     id: item.id,
     rating: item.rating,
-    originalPrompt: item.originalPrompt,
-    improvedPrompt: item.improvedPrompt,
+    originalPrompt:
+      item.originalPrompt,
+    improvedPrompt:
+      item.improvedPrompt,
     category: item.category,
     model: item.model,
     goal: item.goal,
     depth: item.depth,
-    outputFormat: item.outputFormat,
-    engineStatus: item.engineStatus,
-    mode: item.engineStatus === "real_ai" ? "real" : "mock",
+    outputFormat:
+      item.outputFormat,
+    engineStatus:
+      item.engineStatus,
+    mode:
+      item.engineStatus === "real_ai"
+        ? "real"
+        : "mock",
     aiProvider:
-      item.engineStatus === "real_ai" ? "openai" : "mock",
+      item.engineStatus === "real_ai"
+        ? "openai"
+        : "mock",
     storageMode: "sqlite_prisma",
-    createdAt: item.createdAt.toLocaleString(),
+    createdAt:
+      item.createdAt.toISOString(),
   };
 }
 
-function calculateAverage(values: number[]) {
+function calculateAverage(
+  values: number[]
+): number {
   if (values.length === 0) {
     return 0;
   }
 
   return Math.round(
-    values.reduce((sum, value) => sum + value, 0) /
-      values.length
+    values.reduce(
+      (sum, value) =>
+        sum + value,
+      0
+    ) / values.length
+  );
+}
+
+function calculateRate(
+  numerator: number,
+  denominator: number
+): number {
+  if (denominator <= 0) {
+    return 0;
+  }
+
+  return Math.min(
+    100,
+    Math.max(
+      0,
+      Math.round(
+        (numerator / denominator) *
+          100
+      )
+    )
   );
 }
 
 export async function GET() {
   try {
+    const isAdmin =
+      await requireAdmin();
+
+    if (!isAdmin) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Access denied. Admin privileges required.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
     const [
       latestOptimizationsRaw,
       latestFeedbackRaw,
+
       totalOptimizations,
       totalFeedback,
       usefulFeedback,
       needsWorkFeedback,
       allOptimizationScores,
 
-      totalSources,
-      activeSources,
-      pausedSources,
-      archivedSources,
+      sourceRecords,
 
       totalDiscoveredPrompts,
       pendingDiscoveredPrompts,
@@ -110,6 +187,7 @@ export async function GET() {
 
       totalCorpusPrompts,
       totalTrainingSignals,
+      corpusTrainingSignals,
     ] = await Promise.all([
       prisma.optimization.findMany({
         orderBy: {
@@ -148,23 +226,17 @@ export async function GET() {
         },
       }),
 
-      prisma.source.count(),
-
-      prisma.source.count({
-        where: {
-          status: "active",
-        },
-      }),
-
-      prisma.source.count({
-        where: {
-          status: "paused",
-        },
-      }),
-
-      prisma.source.count({
-        where: {
-          status: "archived",
+      prisma.source.findMany({
+        select: {
+          id: true,
+          status: true,
+          lastScanAt: true,
+          credibilityScore: true,
+          _count: {
+            select: {
+              discoveredPrompts: true,
+            },
+          },
         },
       }),
 
@@ -178,7 +250,8 @@ export async function GET() {
 
       prisma.discoveredPrompt.count({
         where: {
-          status: "sent_to_curation",
+          status:
+            "sent_to_curation",
         },
       }),
 
@@ -217,36 +290,183 @@ export async function GET() {
       prisma.corpusPrompt.count(),
 
       prisma.trainingSignal.count(),
+
+      prisma.trainingSignal.findMany({
+        where: {
+          sourceType: "corpus",
+          corpusId: {
+            not: null,
+          },
+        },
+        select: {
+          corpusId: true,
+        },
+        distinct: ["corpusId"],
+      }),
     ]);
 
-    const originalScores = allOptimizationScores.map(
-      (item: { originalScore: number }) => item.originalScore
-    );
+    const totalSources =
+      sourceRecords.length;
 
-    const improvedScores = allOptimizationScores.map(
-      (item: { improvedScore: number }) => item.improvedScore
-    );
+    const activeSources =
+      sourceRecords.filter(
+        (source) =>
+          source.status === "active"
+      ).length;
 
-    const scoreGains = allOptimizationScores.map(
-      (item: { originalScore: number; improvedScore: number }) =>
-        item.improvedScore - item.originalScore
-    );
+    const pausedSources =
+      sourceRecords.filter(
+        (source) =>
+          source.status === "paused"
+      ).length;
+
+    const archivedSources =
+      sourceRecords.filter(
+        (source) =>
+          source.status === "archived"
+      ).length;
+
+    const scannedSources =
+      sourceRecords.filter(
+        (source) =>
+          source.lastScanAt !== null
+      ).length;
+
+    const productiveSources =
+      sourceRecords.filter(
+        (source) =>
+          source._count
+            .discoveredPrompts > 0
+      ).length;
+
+    const totalPromptsFromSources =
+      sourceRecords.reduce(
+        (total, source) =>
+          total +
+          source._count
+            .discoveredPrompts,
+        0
+      );
+
+    const averageCredibility =
+      calculateAverage(
+        sourceRecords.map(
+          (source) =>
+            source.credibilityScore
+        )
+      );
+
+    const averagePromptsPerSource =
+      totalSources === 0
+        ? 0
+        : Number(
+            (
+              totalPromptsFromSources /
+              totalSources
+            ).toFixed(1)
+          );
+
+    const originalScores =
+      allOptimizationScores.map(
+        (item) =>
+          item.originalScore
+      );
+
+    const improvedScores =
+      allOptimizationScores.map(
+        (item) =>
+          item.improvedScore
+      );
+
+    const scoreGains =
+      allOptimizationScores.map(
+        (item) =>
+          item.improvedScore -
+          item.originalScore
+      );
 
     const averageOriginalScore =
-      calculateAverage(originalScores);
+      calculateAverage(
+        originalScores
+      );
 
     const averageImprovedScore =
-      calculateAverage(improvedScores);
+      calculateAverage(
+        improvedScores
+      );
 
     const averageScoreGain =
-      calculateAverage(scoreGains);
+      calculateAverage(
+        scoreGains
+      );
 
     const usefulRate =
-      totalFeedback === 0
-        ? 0
-        : Math.round(
-            (usefulFeedback / totalFeedback) * 100
-          );
+      calculateRate(
+        usefulFeedback,
+        totalFeedback
+      );
+
+    const reviewedDiscoveryCount =
+      approvedDiscoveredPrompts +
+      rejectedDiscoveredPrompts;
+
+    const enteredCurationCount =
+      curationQueueCount +
+      reviewedDiscoveryCount;
+
+    const corpusLinkedSignalCount =
+      corpusTrainingSignals.length;
+
+    const discoveryApprovalRate =
+      calculateRate(
+        approvedDiscoveredPrompts,
+        reviewedDiscoveryCount
+      );
+
+    const discoveryRejectionRate =
+      calculateRate(
+        rejectedDiscoveredPrompts,
+        reviewedDiscoveryCount
+      );
+
+    const sourceScanningRate =
+      calculateRate(
+        scannedSources,
+        totalSources
+      );
+
+    const productiveSourceRate =
+      calculateRate(
+        productiveSources,
+        totalSources
+      );
+
+    const discoveryToCurationRate =
+      calculateRate(
+        enteredCurationCount,
+        totalDiscoveredPrompts
+      );
+
+    const curationToCorpusRate =
+      calculateRate(
+        totalCorpusPrompts,
+        reviewedDiscoveryCount
+      );
+
+    const corpusToTrainingRate =
+      calculateRate(
+        corpusLinkedSignalCount,
+        totalCorpusPrompts
+      );
+
+    const endToEndConversionRate =
+      calculateRate(
+        corpusLinkedSignalCount,
+        totalDiscoveredPrompts
+      );
+
+    const pendingReviewCount =
+      curationQueueCount;
 
     const latestOptimizations =
       latestOptimizationsRaw.map(
@@ -258,29 +478,12 @@ export async function GET() {
         formatFeedbackItem
       );
 
-    const discoveryApprovalRate =
-      totalDiscoveredPrompts === 0
-        ? 0
-        : Math.round(
-            (approvedDiscoveredPrompts /
-              totalDiscoveredPrompts) *
-              100
-          );
-
-    const discoveryRejectionRate =
-      totalDiscoveredPrompts === 0
-        ? 0
-        : Math.round(
-            (rejectedDiscoveredPrompts /
-              totalDiscoveredPrompts) *
-              100
-          );
-
     return NextResponse.json({
       success: true,
-      storageMode: "sqlite_prisma",
+      storageMode:
+        "sqlite_prisma",
       message:
-        "Analytics loaded successfully from SQLite using Prisma.",
+        "Pipeline analytics loaded successfully from SQLite using Prisma.",
 
       totalOptimizations,
       totalFeedback,
@@ -296,10 +499,15 @@ export async function GET() {
       activeSources,
       pausedSources,
       archivedSources,
+      scannedSources,
+      productiveSources,
+      averageCredibility,
+      averagePromptsPerSource,
 
       totalDiscoveredPrompts,
       pendingDiscoveredPrompts,
       curationQueueCount,
+      pendingReviewCount,
       approvedDiscoveredPrompts,
       rejectedDiscoveredPrompts,
 
@@ -310,16 +518,33 @@ export async function GET() {
 
       totalCorpusPrompts,
       totalTrainingSignals,
+      corpusLinkedSignalCount,
 
       discoveryApprovalRate,
       discoveryRejectionRate,
 
+      sourceScanningRate,
+      productiveSourceRate,
+      discoveryToCurationRate,
+      curationToCorpusRate,
+      corpusToTrainingRate,
+      endToEndConversionRate,
+
       totals: {
-        totalOptimizations,
-        totalFeedback,
-        usefulFeedback,
-        needsWorkFeedback,
-        usefulRate,
+        optimizations:
+          totalOptimizations,
+        feedback:
+          totalFeedback,
+        sources:
+          totalSources,
+        discovery:
+          totalDiscoveredPrompts,
+        pendingReviews:
+          pendingReviewCount,
+        corpus:
+          totalCorpusPrompts,
+        trainingSignals:
+          totalTrainingSignals,
       },
 
       scores: {
@@ -332,15 +557,35 @@ export async function GET() {
         total: totalSources,
         active: activeSources,
         paused: pausedSources,
-        archived: archivedSources,
+        archived:
+          archivedSources,
+        scanned:
+          scannedSources,
+        productive:
+          productiveSources,
+        averageCredibility,
+        averagePromptsPerSource,
+        scanningRate:
+          sourceScanningRate,
+        productiveRate:
+          productiveSourceRate,
       },
 
       discovery: {
-        total: totalDiscoveredPrompts,
-        pending: pendingDiscoveredPrompts,
-        sentToCuration: curationQueueCount,
-        approved: approvedDiscoveredPrompts,
-        rejected: rejectedDiscoveredPrompts,
+        total:
+          totalDiscoveredPrompts,
+        pending:
+          pendingDiscoveredPrompts,
+        sentToCuration:
+          curationQueueCount,
+        enteredCuration:
+          enteredCurationCount,
+        approved:
+          approvedDiscoveredPrompts,
+        rejected:
+          rejectedDiscoveredPrompts,
+        reviewed:
+          reviewedDiscoveryCount,
         approvalRate:
           discoveryApprovalRate,
         rejectionRate:
@@ -348,18 +593,77 @@ export async function GET() {
       },
 
       curation: {
-        totalReviews: totalCurationReviews,
-        approved: approvedCurationReviews,
-        rejected: rejectedCurationReviews,
-        risky: riskyCurationReviews,
+        pending:
+          pendingReviewCount,
+        totalReviews:
+          totalCurationReviews,
+        approvedReviews:
+          approvedCurationReviews,
+        rejectedReviews:
+          rejectedCurationReviews,
+        riskyReviews:
+          riskyCurationReviews,
       },
 
       corpus: {
-        total: totalCorpusPrompts,
+        total:
+          totalCorpusPrompts,
       },
 
       training: {
-        totalSignals: totalTrainingSignals,
+        totalSignals:
+          totalTrainingSignals,
+        corpusLinkedSignals:
+          corpusLinkedSignalCount,
+      },
+
+      pipeline: {
+        stages: [
+          {
+            key: "sources",
+            label: "Sources",
+            count: totalSources,
+          },
+          {
+            key: "discovery",
+            label: "Discovery",
+            count:
+              totalDiscoveredPrompts,
+          },
+          {
+            key: "curation",
+            label: "Curation",
+            count:
+              enteredCurationCount,
+          },
+          {
+            key: "corpus",
+            label: "Corpus",
+            count:
+              totalCorpusPrompts,
+          },
+          {
+            key: "training",
+            label: "Training",
+            count:
+              corpusLinkedSignalCount,
+          },
+        ],
+
+        conversions: {
+          sourceScanning:
+            sourceScanningRate,
+          productiveSources:
+            productiveSourceRate,
+          discoveryToCuration:
+            discoveryToCurationRate,
+          curationToCorpus:
+            curationToCorpusRate,
+          corpusToTraining:
+            corpusToTrainingRate,
+          endToEnd:
+            endToEndConversionRate,
+        },
       },
 
       latestOptimizations,
@@ -368,16 +672,28 @@ export async function GET() {
       summary: {
         hasOptimizations:
           totalOptimizations > 0,
-        hasFeedback: totalFeedback > 0,
-        hasSources: totalSources > 0,
+        hasFeedback:
+          totalFeedback > 0,
+        hasSources:
+          totalSources > 0,
         hasDiscoveredPrompts:
-          totalDiscoveredPrompts > 0,
+          totalDiscoveredPrompts >
+          0,
+        hasPendingReviews:
+          pendingReviewCount > 0,
         hasCurationReviews:
           totalCurationReviews > 0,
         hasCorpusPrompts:
           totalCorpusPrompts > 0,
         hasTrainingSignals:
           totalTrainingSignals > 0,
+        fullPipelineActive:
+          totalSources > 0 &&
+          totalDiscoveredPrompts >
+            0 &&
+          totalCorpusPrompts > 0 &&
+          corpusLinkedSignalCount >
+            0,
         latestOptimizationCount:
           latestOptimizations.length,
         latestFeedbackCount:
@@ -386,7 +702,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error(
-      "Analytics GET error:",
+      "GET /api/analytics error:",
       error
     );
 
@@ -394,8 +710,9 @@ export async function GET() {
       {
         success: false,
         error:
-          "Something went wrong while loading analytics.",
-        storageMode: "sqlite_prisma",
+          "Something went wrong while loading pipeline analytics.",
+        storageMode:
+          "sqlite_prisma",
       },
       {
         status: 500,
