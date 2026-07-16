@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { buildScorerSystemPrompt, buildScorerUserPrompt } from "../../lib/ai/prompts";
+import { chatWithOllama, getOllamaModels } from "../../lib/ai/ollama";
 
 type ScoreRequest = {
   prompt?: string;
@@ -9,8 +10,8 @@ type ScoreRequest = {
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    })
+    apiKey: process.env.OPENAI_API_KEY,
+  })
   : null;
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -82,7 +83,9 @@ export async function POST(request: Request) {
     };
     let scoringMode = "mock_rule_based";
 
-    // If real OpenAI is configured, score dynamically using the standardized Scorer prompt template
+    const ollamaModels = await getOllamaModels();
+    const hasOllama = ollamaModels.length > 0;
+
     if (openai) {
       try {
         const completion = await openai.chat.completions.create({
@@ -112,9 +115,47 @@ export async function POST(request: Request) {
           scoringMode = "real_ai_scorer";
         }
       } catch (e) {
-        console.error("AI scoring failed, falling back to rule-based scorer:", e);
+        console.error("AI scoring failed, falling back to local/mock scorer:", e);
+
+        // Si OpenAI échoue, on tente le modèle local Ollama
+        if (hasOllama) {
+          try {
+            const systemPrompt = buildScorerSystemPrompt();
+            const userPrompt = buildScorerUserPrompt(prompt, category);
+            const content = await chatWithOllama(systemPrompt, userPrompt, "llama3.2");
+            if (content) {
+              const parsed = JSON.parse(content);
+              if (typeof parsed.score === "number") {
+                score = parsed.score;
+                breakdown = parsed.breakdown || breakdown;
+                reasoning = parsed.reasoning || reasoning;
+                scoringMode = "local_ai_scorer";
+              }
+            }
+          } catch (ollamaErr) {
+            console.error("Ollama fallback scoring failed too:", ollamaErr);
+          }
+        }
+      }
+    } else if (hasOllama) {
+      try {
+        const systemPrompt = buildScorerSystemPrompt();
+        const userPrompt = buildScorerUserPrompt(prompt, category);
+        const content = await chatWithOllama(systemPrompt, userPrompt, "llama3.2");
+        if (content) {
+          const parsed = JSON.parse(content);
+          if (typeof parsed.score === "number") {
+            score = parsed.score;
+            breakdown = parsed.breakdown || breakdown;
+            reasoning = parsed.reasoning || reasoning;
+            scoringMode = "local_ai_scorer";
+          }
+        }
+      } catch (e) {
+        console.error("Ollama scoring failed, falling back to rule-based scorer:", e);
       }
     }
+
 
     return NextResponse.json({
       score,
@@ -125,9 +166,12 @@ export async function POST(request: Request) {
       notes: [
         "Score is calculated out of 100.",
         scoringMode === "real_ai_scorer"
-          ? "Scored dynamically using real AI according to prompt templates rubric instructions."
-          : "Fallback mock scoring checks clarity, length, structure, context, constraints, and signals."
+          ? "Scored dynamically using real AI (OpenAI) according to prompt templates rubric instructions."
+          : scoringMode === "local_ai_scorer"
+            ? `Scored dynamically using local AI (Ollama: ${ollamaModels[0] || "llama3.2"}) according to prompt templates rubric.`
+            : "Fallback mock scoring checks clarity, length, structure, context, constraints, and signals."
       ],
+
     });
   } catch (error) {
     console.error("Scoring handler error:", error);

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { buildOptimizerSystemPrompt, buildOptimizerUserPrompt } from "../../lib/ai/prompts";
+import { chatWithOllama, getOllamaModels } from "../../lib/ai/ollama";
 
 type OptimizeRequest = {
   prompt?: string;
@@ -13,7 +14,7 @@ type OptimizeRequest = {
 };
 
 type ApiMode = "mock" | "real_ai";
-type AiProvider = "mock" | "openai";
+type AiProvider = "mock" | "openai" | "ollama";
 
 type ApiErrorResponse = {
   success: false;
@@ -36,8 +37,8 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    })
+    apiKey: process.env.OPENAI_API_KEY,
+  })
   : null;
 
 function normalizeText(value: unknown, fallback = "") {
@@ -253,11 +254,11 @@ function calculateImprovedScore(
 
   return Math.min(
     originalScore +
-      depthBoost +
-      categoryBoost +
-      formatBoost +
-      goalBoost +
-      realAiBoost,
+    depthBoost +
+    categoryBoost +
+    formatBoost +
+    goalBoost +
+    realAiBoost,
     99
   );
 }
@@ -575,6 +576,34 @@ async function buildRealAiOptimization(params: {
   return parsed;
 }
 
+async function buildOllamaOptimization(params: {
+  prompt: string;
+  category: string;
+  model: string;
+  goal: string;
+  depth: string;
+  outputFormat: string;
+  personalStyle: string;
+}) {
+  const systemPrompt = buildRealAiSystemPrompt(params.category);
+  const userPrompt = buildRealAiUserPrompt(params);
+
+  // Appelle notre connecteur local Ollama
+  const content = await chatWithOllama(systemPrompt, userPrompt, "llama3.2");
+  if (!content) {
+    throw new Error("Ollama returned an empty response.");
+  }
+
+  // Parse le JSON renvoyé par le modèle local
+  const parsed = parseAiJson(content);
+  if (!parsed?.improvedPrompt) {
+    throw new Error("Ollama response was not valid JSON or was missing improvedPrompt.");
+  }
+
+  return parsed;
+}
+
+
 function buildMockOptimization(params: {
   prompt: string;
   category: string;
@@ -587,22 +616,22 @@ function buildMockOptimization(params: {
   const improvedPrompt =
     params.category === "Image Generation"
       ? buildImagePrompt(
-          params.prompt,
-          params.model,
-          params.goal,
-          params.depth,
-          params.outputFormat,
-          params.personalStyle
-        )
+        params.prompt,
+        params.model,
+        params.goal,
+        params.depth,
+        params.outputFormat,
+        params.personalStyle
+      )
       : buildGeneralPrompt(
-          params.prompt,
-          params.category,
-          params.model,
-          params.goal,
-          params.depth,
-          params.outputFormat,
-          params.personalStyle
-        );
+        params.prompt,
+        params.category,
+        params.model,
+        params.goal,
+        params.depth,
+        params.outputFormat,
+        params.personalStyle
+      );
 
   return {
     improvedPrompt,
@@ -628,21 +657,36 @@ function buildMockOptimization(params: {
 
 export async function GET() {
   const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
+  const ollamaModels = await getOllamaModels();
+  const hasOllama = ollamaModels.length > 0;
+
+  let mode = "mock";
+  let aiProvider = "mock";
+  let message = "Optimize API is available. Mock mode is active because OpenAI and Ollama are unavailable.";
+
+  if (hasOpenAiKey) {
+    mode = "real_ai";
+    aiProvider = "openai";
+    message = "Optimize API is available. Real AI mode is enabled with OpenAI.";
+  } else if (hasOllama) {
+    mode = "real_ai";
+    aiProvider = "ollama";
+    message = `Optimize API is available. Local AI mode is enabled with Ollama. Detected models: ${ollamaModels.join(", ")}`;
+  }
 
   return NextResponse.json({
     name: "Optimize API",
     route: "/api/optimize",
     status: "online",
-    mode: hasOpenAiKey ? "real_ai" : "mock",
-    aiProvider: hasOpenAiKey ? "openai" : "mock",
-    openAiModel: hasOpenAiKey ? OPENAI_MODEL : null,
+    mode,
+    aiProvider,
+    openAiModel: hasOpenAiKey ? OPENAI_MODEL : (hasOllama ? ollamaModels[0] : null),
     storageMode: "sqlite_prisma_ready",
-    message: hasOpenAiKey
-      ? "Optimize API is available. Real AI mode is enabled with OpenAI."
-      : "Optimize API is available. Mock mode is active because OPENAI_API_KEY is missing.",
+    message,
     supportedMethods: ["GET", "POST"],
   });
 }
+
 
 export async function POST(request: Request) {
   try {
@@ -688,8 +732,11 @@ export async function POST(request: Request) {
 
     const originalScore = calculatePromptScore(prompt, category);
 
-    let mode: ApiMode = openai ? "real_ai" : "mock";
-    let aiProvider: AiProvider = openai ? "openai" : "mock";
+    const ollamaModels = await getOllamaModels();
+    const hasOllama = ollamaModels.length > 0;
+
+    let mode: ApiMode = (openai || hasOllama) ? "real_ai" : "mock";
+    let aiProvider: AiProvider = openai ? "openai" : (hasOllama ? "ollama" : "mock");
     let fallbackReason = "";
 
     let optimization = buildMockOptimization({
@@ -732,14 +779,81 @@ export async function POST(request: Request) {
           };
         }
       } catch (error) {
-        console.error("OpenAI optimization failed. Falling back to mock:", error);
+        console.error("OpenAI optimization failed. Falling back to local/mock:", error);
+        fallbackReason = error instanceof Error ? error.message : "OpenAI failed";
 
+        // Si OpenAI échoue mais qu'Ollama est disponible en local, on bascule sur Ollama
+        if (hasOllama) {
+          try {
+            aiProvider = "ollama";
+            const localOptimization = await buildOllamaOptimization({
+              prompt,
+              category,
+              model,
+              goal,
+              depth,
+              outputFormat,
+              personalStyle,
+            });
+
+            optimization = {
+              improvedPrompt: localOptimization.improvedPrompt || optimization.improvedPrompt,
+              explanation: safeStringArray(
+                localOptimization.explanation,
+                optimization.explanation
+              ),
+              variants: safeStringArray(
+                localOptimization.variants,
+                optimization.variants
+              ),
+              patterns: safeStringArray(
+                localOptimization.patterns,
+                optimization.patterns
+              ),
+            };
+          } catch (ollamaErr) {
+            console.error("Ollama fallback failed too:", ollamaErr);
+            mode = "mock";
+            aiProvider = "mock";
+            fallbackReason += " & Ollama fallback failed too.";
+          }
+        } else {
+          mode = "mock";
+          aiProvider = "mock";
+        }
+      }
+    } else if (hasOllama) {
+      try {
+        const localOptimization = await buildOllamaOptimization({
+          prompt,
+          category,
+          model,
+          goal,
+          depth,
+          outputFormat,
+          personalStyle,
+        });
+
+        optimization = {
+          improvedPrompt: localOptimization.improvedPrompt || optimization.improvedPrompt,
+          explanation: safeStringArray(
+            localOptimization.explanation,
+            optimization.explanation
+          ),
+          variants: safeStringArray(
+            localOptimization.variants,
+            optimization.variants
+          ),
+          patterns: safeStringArray(
+            localOptimization.patterns,
+            optimization.patterns
+          ),
+        };
+      } catch (error) {
+        console.error("Ollama optimization failed. Falling back to mock:", error);
         mode = "mock";
         aiProvider = "mock";
-        fallbackReason =
-          error instanceof Error
-            ? error.message
-            : "OpenAI request failed, so mock optimizer was used.";
+        fallbackReason = error instanceof Error ? error.message : "Ollama request failed.";
       }
     }
 
@@ -759,7 +873,7 @@ export async function POST(request: Request) {
 
       mode,
       aiProvider,
-      openAiModel: mode === "real_ai" ? OPENAI_MODEL : null,
+      openAiModel: aiProvider === "openai" ? OPENAI_MODEL : (aiProvider === "ollama" ? (ollamaModels[0] || "llama3.2") : null),
       storageMode: "sqlite_prisma_ready",
       engineStatus: mode === "real_ai" ? "real_ai" : "mock_api",
       fallbackReason,
@@ -781,7 +895,7 @@ export async function POST(request: Request) {
         `Score gain is +${scoreGain} points.`,
         `Detected use case: ${category}.`,
         mode === "real_ai"
-          ? `Real AI mode is active using OpenAI model: ${OPENAI_MODEL}.`
+          ? `Real AI mode is active using ${aiProvider === "openai" ? `OpenAI model: ${OPENAI_MODEL}` : `Ollama model: ${ollamaModels[0] || "llama3.2"}`}.`
           : "Mock optimizer mode is active.",
       ],
 
