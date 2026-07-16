@@ -6,6 +6,7 @@ import {
 } from "next/server";
 
 import { prisma } from "../../lib/prisma";
+import { verifyToken } from "../../lib/auth";
 
 const ALLOWED_REVIEW_STATUSES = [
   "approved",
@@ -33,12 +34,9 @@ type RiskLevel =
 
 async function requireAdmin() {
   const cookieStore = await cookies();
-
-  const role =
-    cookieStore.get("wordsly_user_role")
-      ?.value || "admin";
-
-  return role === "admin";
+  const token = cookieStore.get("wordsly_session")?.value || "";
+  const decoded = verifyToken(token);
+  return decoded?.role === "admin";
 }
 
 function isValidReviewStatus(

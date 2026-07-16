@@ -1,18 +1,27 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "../../lib/prisma";
+import { verifyToken } from "../../lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
-    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
-    if (role !== "admin") {
+    const token = cookieStore.get("wordsly_session")?.value || "";
+    const session = verifyToken(token);
+    if (!session || session.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Access denied. Admin privileges required." },
         { status: 403 }
       );
     }
+
+    const url = new URL(request.url);
+    const showArchived = url.searchParams.get("archived") === "true";
+
     const prompts = await prisma.corpusPrompt.findMany({
+      where: {
+        isArchived: showArchived,
+      },
       orderBy: {
         createdAt: "desc",
       },
@@ -48,6 +57,8 @@ export async function GET() {
         qualityScore: p.qualityScore,
         patterns: patternsList,
         metadata: metadataObj,
+        isArchived: p.isArchived,
+        version: p.version,
         createdAt: p.createdAt,
       };
     });
@@ -69,8 +80,9 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
-    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
-    if (role !== "admin") {
+    const token = cookieStore.get("wordsly_session")?.value || "";
+    const session = verifyToken(token);
+    if (!session || session.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Access denied. Admin privileges required." },
         { status: 403 }
@@ -123,6 +135,8 @@ export async function POST(request: Request) {
         qualityScore: Number(qualityScore) || 0,
         patterns: patternsString,
         metadata: metadataString,
+        isArchived: false,
+        version: 1,
       },
     });
 
@@ -143,15 +157,16 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const cookieStore = await cookies();
-    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
-    if (role !== "admin") {
+    const token = cookieStore.get("wordsly_session")?.value || "";
+    const session = verifyToken(token);
+    if (!session || session.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Access denied. Admin privileges required." },
         { status: 403 }
       );
     }
     const body = await request.json();
-    const { id, title, prompt, improvedVersion, category, model, qualityScore, patterns, metadata } = body;
+    const { id, title, prompt, improvedVersion, category, model, qualityScore, patterns, metadata, isArchived } = body;
 
     if (!id || !title || !prompt) {
       return NextResponse.json(
@@ -190,10 +205,11 @@ export async function PUT(request: Request) {
     // Check if prompt or improvedVersion has changed
     const hasPromptChanged = currentPrompt.prompt !== prompt;
     const hasImprovedChanged = (currentPrompt.improvedVersion || "") !== (improvedVersion || "");
+    let nextVersion = currentPrompt.version;
 
     if (hasPromptChanged || hasImprovedChanged) {
       const history = Array.isArray(existingMetadata.versionHistory) ? existingMetadata.versionHistory : [];
-      const currentVersion = Number(existingMetadata.version) || 1;
+      const currentVersion = currentPrompt.version;
 
       // Log previous version
       history.push({
@@ -204,7 +220,7 @@ export async function PUT(request: Request) {
       });
 
       existingMetadata.versionHistory = history;
-      existingMetadata.version = currentVersion + 1;
+      nextVersion = currentVersion + 1;
     }
 
     const incomingMetadata = typeof metadata === "object" ? metadata : {};
@@ -212,7 +228,7 @@ export async function PUT(request: Request) {
       ...existingMetadata,
       ...incomingMetadata,
       versionHistory: existingMetadata.versionHistory || [],
-      version: existingMetadata.version || 1,
+      version: nextVersion,
     };
 
     const patternsString = Array.isArray(patterns) ? JSON.stringify(patterns) : patterns || "[]";
@@ -229,6 +245,8 @@ export async function PUT(request: Request) {
         qualityScore: Number(qualityScore) || 0,
         patterns: patternsString,
         metadata: metadataString,
+        isArchived: isArchived !== undefined ? Boolean(isArchived) : currentPrompt.isArchived,
+        version: nextVersion,
       },
     });
 
@@ -249,8 +267,9 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const cookieStore = await cookies();
-    const role = cookieStore.get("wordsly_user_role")?.value || "admin";
-    if (role !== "admin") {
+    const token = cookieStore.get("wordsly_session")?.value || "";
+    const session = verifyToken(token);
+    if (!session || session.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Access denied. Admin privileges required." },
         { status: 403 }

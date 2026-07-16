@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { buildOptimizerSystemPrompt, buildOptimizerUserPrompt } from "../../lib/ai/prompts";
 
 type OptimizeRequest = {
   prompt?: string;
@@ -518,21 +519,7 @@ function parseAiJson(text: string): AiOptimizationJson | null {
 }
 
 function buildRealAiSystemPrompt(category: string) {
-  return `You are PromptMaster, the real AI optimization engine inside Wordsly.Ai.
-
-You improve user prompts with expert prompt engineering.
-
-Rules:
-- Preserve the user's original intent.
-- Make the prompt clearer, more specific, and more useful.
-- Add missing context only when helpful.
-- Add constraints that reduce weak or generic answers.
-- Make the final prompt ready to paste into the selected AI model.
-- Do not include hidden reasoning.
-- Do not mention that you are an AI unless the prompt needs it.
-- Return valid JSON only.
-
-The user prompt category is: ${category}.`;
+  return buildOptimizerSystemPrompt(category);
 }
 
 function buildRealAiUserPrompt(params: {
@@ -544,47 +531,7 @@ function buildRealAiUserPrompt(params: {
   outputFormat: string;
   personalStyle: string;
 }) {
-  const styleBlock = params.personalStyle
-    ? `\nPersonal style preference:\n${params.personalStyle}\n`
-    : "";
-
-  return `Optimize this prompt for Wordsly.Ai.
-
-Original prompt:
-${params.prompt}
-
-Use case:
-${params.category}
-
-Target model style:
-${params.model}
-
-Optimization goal:
-${params.goal}
-
-Optimization depth:
-${params.depth}
-
-Requested output format:
-${params.outputFormat}
-${styleBlock}
-
-Return only valid JSON with this exact shape:
-{
-  "improvedPrompt": "string",
-  "explanation": ["string", "string", "string", "string"],
-  "variants": ["string", "string", "string"],
-  "patterns": ["string", "string", "string", "string", "string", "string"]
-}
-
-Important:
-- improvedPrompt must be the final optimized prompt.
-- explanation must explain practical improvements.
-- variants must be alternative optimized prompt versions.
-- patterns must be short labels describing the prompt engineering patterns used.
-- For image prompts, include visual style, composition, lighting, color palette, details, and negative prompt.
-- For coding prompts, include technical context, expected behavior, constraints, and copy-paste output expectations.
-- For agent prompts, include role, tools, workflow, rules, memory boundaries, and success criteria.`;
+  return buildOptimizerUserPrompt(params);
 }
 
 async function buildRealAiOptimization(params: {

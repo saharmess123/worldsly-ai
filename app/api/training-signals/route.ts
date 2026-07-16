@@ -6,6 +6,7 @@ import {
 } from "next/server";
 
 import { prisma } from "../../lib/prisma";
+import { verifyToken } from "../../lib/auth";
 
 const SOURCE_TYPES = [
   "feedback",
@@ -27,12 +28,9 @@ type SignalType =
 
 async function requireAdmin(): Promise<boolean> {
   const cookieStore = await cookies();
-
-  const role =
-    cookieStore.get("wordsly_user_role")
-      ?.value || "admin";
-
-  return role === "admin";
+  const token = cookieStore.get("wordsly_session")?.value || "";
+  const decoded = verifyToken(token);
+  return decoded?.role === "admin";
 }
 
 function isValidSourceType(

@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { verifyToken } from "./app/lib/auth";
 
 export function proxy(request: NextRequest) {
-  const roleCookie = request.cookies.get("wordsly_user_role");
-  // Default to user initially if no cookie exists for robust role protection.
-  const role = roleCookie?.value || "user";
+  const sessionCookie = request.cookies.get("wordsly_session");
+  const token = sessionCookie?.value || "";
+  
+  // Verify session cryptographically
+  const session = verifyToken(token);
+  const role = session?.role || "user";
+  const userId = session?.userId || null;
 
   const { pathname } = request.nextUrl;
 
@@ -31,14 +36,28 @@ export function proxy(request: NextRequest) {
     (path) => pathname === path || pathname.startsWith(path + "/")
   );
 
-  if (isAdminPath && role !== "admin") {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { success: false, error: "Access denied. Admin privileges required." },
-        { status: 403 }
-      );
+  if (isAdminPath) {
+    // If not logged in, redirect to login or return 401
+    if (!userId) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { success: false, error: "Access denied. Authentication required." },
+          { status: 401 }
+        );
+      }
+      return NextResponse.redirect(new URL("/login", request.url));
     }
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+
+    // If logged in but not admin, deny access
+    if (role !== "admin") {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { success: false, error: "Access denied. Admin privileges required." },
+          { status: 403 }
+        );
+      }
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
   }
 
   return NextResponse.next();

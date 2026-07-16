@@ -31,30 +31,42 @@ const adminLinks = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<{ id: string; name: string | null; email: string; role: string } | null>(null);
   const [role, setRole] = useState<"user" | "admin">("user");
 
-  const isDev = process.env.NODE_ENV === "development";
-
   useEffect(() => {
-    const localRole = localStorage.getItem("wordsly_user_role");
-    let nextRole: "user" | "admin" = "user";
-    if (localRole === "admin") {
-      nextRole = "admin";
-    } else {
-      nextRole = "user";
-      localStorage.setItem("wordsly_user_role", "user");
+    async function checkSession() {
+      try {
+        const res = await fetch("/api/auth/me");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.authenticated) {
+            setUser(data.user);
+            setRole(data.user.role === "admin" ? "admin" : "user");
+            return;
+          }
+        }
+        setUser(null);
+        setRole("user");
+      } catch {
+        setUser(null);
+        setRole("user");
+      }
     }
-    setRole(nextRole);
-    document.cookie = `wordsly_user_role=${nextRole}; path=/; max-age=31536000`;
+    checkSession();
   }, []);
 
-  function toggleRole() {
-    const nextRole = role === "admin" ? "user" : "admin";
-    localStorage.setItem("wordsly_user_role", nextRole);
-    document.cookie = `wordsly_user_role=${nextRole}; path=/; max-age=31536000`;
-    setRole(nextRole);
-    window.dispatchEvent(new Event("storage")); // Trigger updates in settings
-    window.location.reload(); // Force reload to trigger middleware route protection
+  async function handleLogout() {
+    try {
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      if (res.ok) {
+        setUser(null);
+        setRole("user");
+        window.location.href = "/login";
+      }
+    } catch {
+      alert("Failed to log out.");
+    }
   }
 
   const activeLinks = role === "admin" ? adminLinks : userLinks;
@@ -109,15 +121,40 @@ export default function Navbar() {
 
         {/* Controls */}
         <div className="hidden items-center gap-3 sm:flex">
-          {isDev && (
-            <button
-              onClick={toggleRole}
-              className={`rounded-full px-4 py-2 text-xs font-black transition ${
-                role === "admin" ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
-              }`}
-            >
-              Role: {role === "admin" ? "Admin 🛠️" : "User 👤"}
-            </button>
+          {user ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  Hi, <strong className="text-slate-800 dark:text-white">{user.name || user.email}</strong>
+                </span>
+                <span className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${
+                  role === "admin" ? "bg-red-500/10 text-red-500 border border-red-500/20" : "bg-blue-500/10 text-blue-500 border border-blue-500/20"
+                }`}>
+                  {role}
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-950 px-4 py-2 text-xs font-black hover:bg-slate-800 transition"
+              >
+                Log Out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="rounded-full border border-slate-300 bg-white/70 px-5 py-2.5 text-xs font-black text-slate-900 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 transition"
+              >
+                Log In
+              </Link>
+              <Link
+                href="/signup"
+                className="rounded-full bg-blue-500 px-5 py-2.5 text-xs font-black text-white hover:bg-blue-600 transition"
+              >
+                Sign Up
+              </Link>
+            </>
           )}
           
           <ThemeToggle />
@@ -132,14 +169,6 @@ export default function Navbar() {
 
         {/* Mobile controls */}
         <div className="flex items-center gap-2 lg:hidden">
-          {isDev && (
-            <button
-              onClick={toggleRole}
-              className="rounded-full bg-slate-200 dark:bg-white/10 px-3 py-2 text-[10px] font-black"
-            >
-              {role === "admin" ? "Admin" : "User"}
-            </button>
-          )}
           <ThemeToggle />
           <button
             onClick={() => setOpen(!open)}
@@ -154,6 +183,43 @@ export default function Navbar() {
       {open && (
         <div className="mt-4 rounded-[2rem] border border-slate-200 bg-white p-3 shadow-xl dark:border-white/10 dark:bg-slate-950 lg:hidden">
           <div className="grid gap-2 max-h-[60vh] overflow-y-auto">
+            {user ? (
+              <div className="border-b border-slate-200 dark:border-white/10 px-4 py-3 mb-2 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-500">Logged in as:</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                    role === "admin" ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
+                  }`}>
+                    {role}
+                  </span>
+                </div>
+                <p className="font-black text-sm text-slate-800 dark:text-white">{user.name || user.email}</p>
+                <button
+                  onClick={handleLogout}
+                  className="mt-2 w-full rounded-xl bg-red-500/10 text-red-500 py-2 text-xs font-black hover:bg-red-500/20 transition"
+                >
+                  Log Out
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 px-4 py-3 mb-2 border-b border-slate-200 dark:border-white/10">
+                <Link
+                  href="/login"
+                  onClick={() => setOpen(false)}
+                  className="rounded-xl border border-slate-300 bg-white py-2 text-center text-xs font-black dark:border-white/10 dark:bg-slate-900"
+                >
+                  Log In
+                </Link>
+                <Link
+                  href="/signup"
+                  onClick={() => setOpen(false)}
+                  className="rounded-xl bg-blue-500 py-2 text-center text-xs font-black text-white"
+                >
+                  Sign Up
+                </Link>
+              </div>
+            )}
+
             <Link href="/" onClick={() => setOpen(false)} className="px-4 py-3 font-black">Home</Link>
             {activeLinks.map((link) => (
               <a

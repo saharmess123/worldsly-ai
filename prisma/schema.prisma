@@ -154,6 +154,8 @@ model CorpusPrompt {
   qualityScore       Int      @default(0)
   patterns           String?
   metadata           String?
+  isArchived         Boolean  @default(false)
+  version            Int      @default(1)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -163,6 +165,7 @@ model CorpusPrompt {
   @@index([category])
   @@index([model])
   @@index([qualityScore])
+  @@index([isArchived])
 }
 
 model TrainingSignal {

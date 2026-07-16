@@ -86,11 +86,13 @@ export default function CorpusPage() {
   const [editReviewerName, setEditReviewerName] = useState("");
   const [editCurationReason, setEditCurationReason] = useState("");
 
-  async function fetchCorpus() {
+  const [viewArchived, setViewArchived] = useState(false);
+
+  async function fetchCorpus(showArchived = viewArchived) {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch("/api/corpus");
+      const res = await fetch(`/api/corpus?archived=${showArchived}`);
       const data = await res.json();
       if (data.success) {
         setCorpusItems(data.items);
@@ -105,9 +107,77 @@ export default function CorpusPage() {
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchCorpus();
-  }, []);
+    fetchCorpus(viewArchived);
+  }, [viewArchived]);
+
+  async function handleArchive(item: CorpusItem, archiveState: boolean) {
+    const actionText = archiveState ? "archive" : "unarchive";
+    if (!confirm(`Are you sure you want to ${actionText} this prompt?`)) return;
+    try {
+      const res = await fetch("/api/corpus", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          title: item.title,
+          prompt: item.prompt,
+          improvedVersion: item.improvedVersion,
+          category: item.category,
+          model: item.model,
+          qualityScore: item.qualityScore,
+          patterns: item.patterns,
+          metadata: item.metadata,
+          isArchived: archiveState,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCorpusItems((prev) => prev.filter((x) => x.id !== item.id));
+        if (detailItem?.id === item.id) setDetailItem(null);
+      } else {
+        alert(data.error || `Failed to ${actionText} prompt.`);
+      }
+    } catch {
+      alert(`Error trying to ${actionText} prompt.`);
+    }
+  }
+
+  async function handleRestoreVersion(versionItem: {
+    version: number;
+    prompt: string;
+    improvedVersion: string;
+    updatedAt: string;
+  }) {
+    if (!detailItem) return;
+    if (!confirm(`Are you sure you want to restore Version ${versionItem.version}? This will replace the active content.`)) return;
+    try {
+      const res = await fetch("/api/corpus", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: detailItem.id,
+          title: detailItem.title,
+          prompt: versionItem.prompt,
+          improvedVersion: versionItem.improvedVersion,
+          category: detailItem.category,
+          model: detailItem.model,
+          qualityScore: detailItem.qualityScore,
+          patterns: detailItem.patterns,
+          metadata: detailItem.metadata,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDetailItem(null); // Close modal
+        fetchCorpus(viewArchived); // Refresh
+        alert("Prompt version restored successfully!");
+      } else {
+        alert(data.error || "Failed to restore version.");
+      }
+    } catch {
+      alert("Error restoring version.");
+    }
+  }
 
   const filteredCorpus = useMemo(() => {
     const filtered = corpusItems.filter((item) => {
@@ -521,6 +591,29 @@ export default function CorpusPage() {
 
         {/* Filters and Exporters Section */}
         <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-white/5">
+          {/* Status Tabs */}
+          <div className="flex gap-2 mb-6 border-b border-slate-200 dark:border-white/10 pb-4">
+            <button
+              onClick={() => setViewArchived(false)}
+              className={`rounded-xl px-5 py-2.5 text-xs font-black transition ${
+                !viewArchived 
+                  ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" 
+                  : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-white/5 dark:text-slate-300"
+              }`}
+            >
+              📂 Active Prompts
+            </button>
+            <button
+              onClick={() => setViewArchived(true)}
+              className={`rounded-xl px-5 py-2.5 text-xs font-black transition ${
+                viewArchived 
+                  ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20" 
+                  : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-white/5 dark:text-slate-300"
+              }`}
+            >
+              📥 Archived Prompts ({viewArchived ? corpusItems.length : "Browse"})
+            </button>
+          </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6 items-end">
             <div className="lg:col-span-2">
               <label className="block text-xs font-black text-slate-500 mb-1">Search Database</label>
@@ -632,12 +725,29 @@ export default function CorpusPage() {
                     >
                       View Details
                     </button>
-                    <button
-                      onClick={() => startEditing(item)}
-                      className="rounded-xl bg-blue-500/10 px-4 py-2 text-xs font-black text-blue-500 hover:bg-blue-500/20"
-                    >
-                      Edit
-                    </button>
+                    {!viewArchived ? (
+                      <>
+                        <button
+                          onClick={() => startEditing(item)}
+                          className="rounded-xl bg-blue-500/10 px-4 py-2 text-xs font-black text-blue-500 hover:bg-blue-500/20"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleArchive(item, true)}
+                          className="rounded-xl bg-amber-500/10 px-4 py-2 text-xs font-black text-amber-500 hover:bg-amber-500/20"
+                        >
+                          Archive
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => handleArchive(item, false)}
+                        className="rounded-xl bg-emerald-500/10 px-4 py-2 text-xs font-black text-emerald-500 hover:bg-emerald-500/20"
+                      >
+                        Unarchive
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDelete(item.id)}
                       className="rounded-xl bg-red-500/10 px-4 py-2 text-xs font-black text-red-500 hover:bg-red-500/20"
@@ -799,7 +909,15 @@ export default function CorpusPage() {
                         <div key={hist.version} className="rounded-2xl border border-slate-200 dark:border-white/10 p-4 text-xs bg-slate-50 dark:bg-white/5">
                           <div className="flex justify-between items-center mb-2">
                             <span className="font-black text-blue-500">Version {hist.version}</span>
-                            <span className="text-slate-400 font-bold">{new Date(hist.updatedAt).toLocaleString()}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-slate-400 font-bold">{new Date(hist.updatedAt).toLocaleString()}</span>
+                              <button
+                                onClick={() => handleRestoreVersion(hist)}
+                                className="rounded-lg bg-blue-500/10 px-2.5 py-1 text-[10px] font-black text-blue-500 hover:bg-blue-500/20"
+                              >
+                                Restore
+                              </button>
+                            </div>
                           </div>
                           <div className="grid gap-2 md:grid-cols-2">
                             <div>

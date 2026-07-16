@@ -9,6 +9,8 @@ type OptimizationResult = {
   aiProvider?: string;
   storageMode?: string;
   engineStatus?: string;
+  fallbackReason?: string;
+  openAiModel?: string | null;
 
   originalPrompt?: string;
   originalScore: number;
@@ -159,12 +161,16 @@ export default function PromptOptimizerPage() {
       return;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second timeout
+
     try {
       setIsOptimizing(true);
       setError("");
       setCopied(false);
       setSaved(false);
       setFeedbackGiven(null);
+      setResult(null); // Clear previous result to refresh view
 
       const response = await fetch("/api/optimize", {
         method: "POST",
@@ -180,6 +186,7 @@ export default function PromptOptimizerPage() {
           outputFormat,
           personalStyle,
         }),
+        signal: controller.signal,
       });
 
       const data = await response.json();
@@ -193,15 +200,18 @@ export default function PromptOptimizerPage() {
       if (data.detectedCategory) {
         setCategory(data.detectedCategory);
       }
-    } catch (error) {
+    } catch (error: any) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Something went wrong while optimizing the prompt.";
+        error.name === "AbortError"
+          ? "Request timed out. The AI model took too long to respond. Please try again."
+          : error instanceof Error
+            ? error.message
+            : "Something went wrong while optimizing the prompt.";
 
       setError(message);
       setResult(null);
     } finally {
+      clearTimeout(timeoutId);
       setIsOptimizing(false);
     }
   }
@@ -596,7 +606,38 @@ export default function PromptOptimizerPage() {
               </p>
             </div>
 
-            {!result ? (
+            {error ? (
+              <div className="flex min-h-[600px] items-center justify-center rounded-3xl border border-red-500/20 bg-red-500/5 p-8 text-center dark:bg-red-500/5">
+                <div>
+                  <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-red-500/10 text-4xl shadow-lg shadow-red-500/20 animate-pulse">
+                    ⚠️
+                  </div>
+                  <h3 className="text-xl font-black text-red-500">
+                    Optimization Failed
+                  </h3>
+                  <p className="mt-3 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-400">
+                    {error}
+                  </p>
+                  
+                  <div className="mt-6 rounded-2xl bg-slate-100 p-4 text-xs font-semibold text-slate-500 dark:bg-slate-950 dark:text-slate-400 max-w-md mx-auto text-left space-y-2">
+                    <p className="font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[10px]">Troubleshooting tips:</p>
+                    <ul className="list-disc pl-4 space-y-1">
+                      <li>Check if the local server terminal has database or network logs.</li>
+                      <li>Verify your <code className="bg-slate-200 dark:bg-slate-900 px-1 py-0.5 rounded">.env</code> configurations and API keys.</li>
+                      <li>Ensure your internet connection is active and stable.</li>
+                    </ul>
+                  </div>
+
+                  <button
+                    onClick={optimizePrompt}
+                    disabled={isOptimizing}
+                    className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-blue-500 px-6 py-3.5 text-sm font-black text-white hover:bg-blue-600 shadow-lg shadow-blue-500/25 transition disabled:opacity-50"
+                  >
+                    {isOptimizing ? "Retrying..." : "🔄 Retry Optimization"}
+                  </button>
+                </div>
+              </div>
+            ) : !result ? (
               <div className="flex min-h-[600px] items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-white/10 dark:bg-slate-950/60">
                 <div>
                   <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-500/10 text-4xl">
@@ -612,6 +653,29 @@ export default function PromptOptimizerPage() {
               </div>
             ) : (
               <div className="space-y-6">
+                {/* Fallback Banner */}
+                {result.aiProvider === "mock" && (
+                  <div className={`rounded-3xl border p-5 flex gap-4 items-start ${
+                    result.fallbackReason 
+                      ? "border-amber-500/30 bg-amber-500/5 text-amber-500" 
+                      : "border-blue-500/25 bg-blue-500/5 text-blue-500"
+                  }`}>
+                    <span className="text-2xl mt-0.5">
+                      {result.fallbackReason ? "⚠️" : "💡"}
+                    </span>
+                    <div>
+                      <h4 className="font-black text-sm uppercase tracking-wider">
+                        {result.fallbackReason ? "Fallback Mode Active" : "Simulated Template Mode"}
+                      </h4>
+                      <p className="mt-1 text-xs leading-5 opacity-90 font-semibold">
+                        {result.fallbackReason 
+                          ? `The primary AI provider failed or is offline. Wordsly automatically fell back to a template-based optimization. Reason: ${result.fallbackReason}`
+                          : "Running in template mode. Configure your real AI provider credentials (like OPENAI_API_KEY) in your environment to unlock deep dynamic prompt engineering."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-5">
                     <p className="text-sm font-black text-red-500">
@@ -668,6 +732,67 @@ export default function PromptOptimizerPage() {
                   </div>
                 </div>
 
+                {/* Before / After Prompt Comparison Section */}
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 dark:border-white/10 dark:bg-slate-950/60">
+                  <h3 className="text-xl font-black mb-4">Before / After Comparison</h3>
+                  
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {/* Before Card */}
+                    <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5 flex flex-col justify-between">
+                      <div>
+                        <div className="mb-3 flex items-center justify-between">
+                          <span className="rounded-full bg-red-500/10 border border-red-500/20 px-3 py-1 text-[10px] font-black text-red-500 uppercase tracking-wider">
+                            Before (Original)
+                          </span>
+                          <span className="text-xs font-bold text-slate-500">
+                            Score: {result.originalScore}%
+                          </span>
+                        </div>
+                        <div className="max-h-[300px] overflow-auto whitespace-pre-wrap rounded-xl bg-white/70 p-4 text-xs leading-6 text-slate-700 dark:bg-slate-950/40 dark:text-slate-300 min-h-[220px]">
+                          {result.originalPrompt || prompt}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* After Card */}
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 flex flex-col justify-between">
+                      <div>
+                        <div className="mb-3 flex items-center justify-between">
+                          <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-[10px] font-black text-emerald-500 uppercase tracking-wider">
+                            After (Optimized)
+                          </span>
+                          <span className="text-xs font-bold text-slate-500">
+                            Score: {result.improvedScore}%
+                          </span>
+                        </div>
+                        <div className="max-h-[300px] overflow-auto whitespace-pre-wrap rounded-xl bg-white/70 p-4 text-xs leading-6 text-slate-700 dark:bg-slate-950/40 dark:text-slate-300 min-h-[220px] relative">
+                          {result.improvedPrompt}
+                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2 justify-between items-center">
+                        <button
+                          onClick={() => copyPrompt(result.improvedPrompt)}
+                          className="rounded-xl bg-blue-500 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-600 transition"
+                        >
+                          {copied ? "✓ Copied" : "📋 Copy Optimized"}
+                        </button>
+                        
+                        <button
+                          onClick={saveToHistory}
+                          disabled={isSavingHistory || saved}
+                          className="rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-950 px-4 py-2.5 text-xs font-black hover:bg-slate-800 disabled:opacity-60 transition"
+                        >
+                          {isSavingHistory
+                            ? "Saving..."
+                            : saved
+                              ? "✓ Saved"
+                              : "💾 Save to History"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
                   <h3 className="text-xl font-black text-blue-700 dark:text-blue-300">
                     API Engine Status
@@ -700,7 +825,7 @@ export default function PromptOptimizerPage() {
                         value: "/api/history",
                       },
                     ].map((item) => (
-                      <div
+                       <div
                         key={item.label}
                         className="rounded-2xl border border-blue-500/20 bg-white/60 p-4 dark:bg-slate-950/40"
                       >
@@ -738,35 +863,6 @@ export default function PromptOptimizerPage() {
                       </div>
                     ))}
                   </div>
-                </div>
-
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-slate-950/60">
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <h3 className="text-xl font-black">Improved Prompt</h3>
-
-                    <button
-                      onClick={() => copyPrompt(result.improvedPrompt)}
-                      className="rounded-full bg-blue-500 px-4 py-2 text-xs font-black text-white hover:bg-blue-600"
-                    >
-                      {copied ? "Copied" : "Copy"}
-                    </button>
-                  </div>
-
-                  <pre className="max-h-[720px] overflow-auto whitespace-pre-wrap rounded-3xl bg-white p-5 text-sm leading-7 text-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                    {result.improvedPrompt}
-                  </pre>
-
-                  <button
-                    onClick={saveToHistory}
-                    disabled={isSavingHistory || saved}
-                    className="mt-4 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
-                  >
-                    {isSavingHistory
-                      ? "Saving..."
-                      : saved
-                        ? "Saved to SQLite History"
-                        : "Save Optimization"}
-                  </button>
                 </div>
 
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-slate-950/60">
