@@ -2,6 +2,7 @@ import type { AIProvider } from "./provider";
 import type { AIProviderName } from "./types";
 import { MockAIProvider } from "./providers/mock-provider";
 import { OllamaAIProvider } from "./providers/ollama-provider";
+import { OpenAIProvider } from "./providers/openai-provider";
 
 export function createAIProvider(
   providerName: AIProviderName = "mock",
@@ -14,6 +15,6 @@ export function createAIProvider(
       return new OllamaAIProvider();
 
     case "openai":
-      throw new Error("OpenAI provider is not implemented yet.");
+      return new OpenAIProvider();
   }
 }
