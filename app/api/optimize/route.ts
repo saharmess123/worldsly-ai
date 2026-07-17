@@ -1,7 +1,13 @@
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { buildOptimizerSystemPrompt, buildOptimizerUserPrompt } from "../../lib/ai/prompts";
-import { chatWithOllama, getOllamaModels } from "../../lib/ai/ollama";
+import {
+  createAIProvider,
+  getConfiguredAIProviderName,
+} from "../../lib/ai/factory";
+import {
+  buildOptimizerSystemPrompt,
+  buildOptimizerUserPrompt,
+} from "../../lib/ai/prompts";
+import { generateWithAIRuntime } from "../../lib/ai/runtime";
 
 type OptimizeRequest = {
   prompt?: string;
@@ -33,15 +39,37 @@ type AiOptimizationJson = {
 };
 
 const MAX_PROMPT_LENGTH = 8000;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  })
-  : null;
+function getConfiguredApiMode(): ApiMode {
+  return getConfiguredAIProviderName() === "mock"
+    ? "mock"
+    : "real_ai";
+}
 
-function normalizeText(value: unknown, fallback = "") {
+function getProviderModel(
+  provider: AiProvider,
+): string | null {
+  if (provider === "openai") {
+    return (
+      process.env.OPENAI_MODEL?.trim() ||
+      "gpt-4o-mini"
+    );
+  }
+
+  if (provider === "ollama") {
+    return (
+      process.env.OLLAMA_MODEL?.trim() ||
+      "llama3.2"
+    );
+  }
+
+  return null;
+}
+
+function normalizeText(
+  value: unknown,
+  fallback = "",
+) {
   if (typeof value !== "string") {
     return fallback;
   }
@@ -49,7 +77,10 @@ function normalizeText(value: unknown, fallback = "") {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function normalizeMultilineText(value: unknown, fallback = "") {
+function normalizeMultilineText(
+  value: unknown,
+  fallback = "",
+) {
   if (typeof value !== "string") {
     return fallback;
   }
@@ -61,8 +92,9 @@ function createErrorResponse(
   error: string,
   status = 400,
   details?: string,
-  mode: ApiMode = openai ? "real_ai" : "mock",
-  aiProvider: AiProvider = openai ? "openai" : "mock"
+  mode: ApiMode = getConfiguredApiMode(),
+  aiProvider: AiProvider =
+    getConfiguredAIProviderName(),
 ) {
   const payload: ApiErrorResponse = {
     success: false,
@@ -73,16 +105,30 @@ function createErrorResponse(
     storageMode: "sqlite_prisma_ready",
   };
 
-  return NextResponse.json(payload, { status });
+  return NextResponse.json(payload, {
+    status,
+  });
 }
 
-function hasAny(text: string, keywords: string[]) {
+function hasAny(
+  text: string,
+  keywords: string[],
+) {
   const lowerText = text.toLowerCase();
-  return keywords.some((keyword) => lowerText.includes(keyword));
+
+  return keywords.some((keyword) =>
+    lowerText.includes(keyword),
+  );
 }
 
-function detectCategory(prompt: string, selectedCategory = "General") {
-  if (selectedCategory && selectedCategory !== "General") {
+function detectCategory(
+  prompt: string,
+  selectedCategory = "General",
+) {
+  if (
+    selectedCategory &&
+    selectedCategory !== "General"
+  ) {
     return selectedCategory;
   }
 
@@ -164,47 +210,225 @@ function detectCategory(prompt: string, selectedCategory = "General") {
   return "General";
 }
 
-function calculatePromptScore(prompt: string, category = "General") {
+function calculatePromptScore(
+  prompt: string,
+  category = "General",
+) {
   const cleanPrompt = normalizeText(prompt);
-  const lowerPrompt = cleanPrompt.toLowerCase();
+  const lowerPrompt =
+    cleanPrompt.toLowerCase();
 
-  if (!cleanPrompt) return 0;
+  if (!cleanPrompt) {
+    return 0;
+  }
 
   let score = 20;
 
-  if (cleanPrompt.length > 40) score += 8;
-  if (cleanPrompt.length > 90) score += 8;
-  if (cleanPrompt.length > 160) score += 8;
-  if (cleanPrompt.length > 280) score += 6;
+  if (cleanPrompt.length > 40) {
+    score += 8;
+  }
 
-  if (hasAny(lowerPrompt, ["act as", "you are", "role"])) score += 8;
-  if (hasAny(lowerPrompt, ["goal", "objective", "task", "purpose"])) score += 7;
-  if (hasAny(lowerPrompt, ["context", "background", "audience"])) score += 7;
-  if (hasAny(lowerPrompt, ["format", "structure", "sections", "table"])) score += 8;
-  if (hasAny(lowerPrompt, ["example", "examples", "sample"])) score += 7;
-  if (hasAny(lowerPrompt, ["step", "steps", "process", "workflow"])) score += 7;
-  if (hasAny(lowerPrompt, ["tone", "style", "voice"])) score += 6;
-  if (hasAny(lowerPrompt, ["constraints", "rules", "avoid", "must"])) score += 8;
-  if (hasAny(lowerPrompt, ["specific", "detailed", "clear", "professional"])) score += 5;
+  if (cleanPrompt.length > 90) {
+    score += 8;
+  }
+
+  if (cleanPrompt.length > 160) {
+    score += 8;
+  }
+
+  if (cleanPrompt.length > 280) {
+    score += 6;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "act as",
+      "you are",
+      "role",
+    ])
+  ) {
+    score += 8;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "goal",
+      "objective",
+      "task",
+      "purpose",
+    ])
+  ) {
+    score += 7;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "context",
+      "background",
+      "audience",
+    ])
+  ) {
+    score += 7;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "format",
+      "structure",
+      "sections",
+      "table",
+    ])
+  ) {
+    score += 8;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "example",
+      "examples",
+      "sample",
+    ])
+  ) {
+    score += 7;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "step",
+      "steps",
+      "process",
+      "workflow",
+    ])
+  ) {
+    score += 7;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "tone",
+      "style",
+      "voice",
+    ])
+  ) {
+    score += 6;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "constraints",
+      "rules",
+      "avoid",
+      "must",
+    ])
+  ) {
+    score += 8;
+  }
+
+  if (
+    hasAny(lowerPrompt, [
+      "specific",
+      "detailed",
+      "clear",
+      "professional",
+    ])
+  ) {
+    score += 5;
+  }
 
   if (category === "Image Generation") {
-    if (hasAny(lowerPrompt, ["lighting", "composition", "style", "camera"])) score += 8;
-    if (hasAny(lowerPrompt, ["background", "colors", "neon", "cinematic"])) score += 6;
-    if (hasAny(lowerPrompt, ["negative prompt", "avoid", "no blurry"])) score += 8;
+    if (
+      hasAny(lowerPrompt, [
+        "lighting",
+        "composition",
+        "style",
+        "camera",
+      ])
+    ) {
+      score += 8;
+    }
+
+    if (
+      hasAny(lowerPrompt, [
+        "background",
+        "colors",
+        "neon",
+        "cinematic",
+      ])
+    ) {
+      score += 6;
+    }
+
+    if (
+      hasAny(lowerPrompt, [
+        "negative prompt",
+        "avoid",
+        "no blurry",
+      ])
+    ) {
+      score += 8;
+    }
   }
 
   if (category === "Video") {
-    if (hasAny(lowerPrompt, ["scene", "camera", "motion", "transition"])) score += 8;
-    if (hasAny(lowerPrompt, ["hook", "pacing", "storyboard"])) score += 6;
+    if (
+      hasAny(lowerPrompt, [
+        "scene",
+        "camera",
+        "motion",
+        "transition",
+      ])
+    ) {
+      score += 8;
+    }
+
+    if (
+      hasAny(lowerPrompt, [
+        "hook",
+        "pacing",
+        "storyboard",
+      ])
+    ) {
+      score += 6;
+    }
   }
 
   if (category === "Coding") {
-    if (hasAny(lowerPrompt, ["code", "bug", "error", "function", "component"])) score += 7;
-    if (hasAny(lowerPrompt, ["typescript", "react", "next.js", "api"])) score += 7;
+    if (
+      hasAny(lowerPrompt, [
+        "code",
+        "bug",
+        "error",
+        "function",
+        "component",
+      ])
+    ) {
+      score += 7;
+    }
+
+    if (
+      hasAny(lowerPrompt, [
+        "typescript",
+        "react",
+        "next.js",
+        "api",
+      ])
+    ) {
+      score += 7;
+    }
   }
 
   if (category === "Agents") {
-    if (hasAny(lowerPrompt, ["tools", "workflow", "memory", "steps", "agent"])) score += 8;
+    if (
+      hasAny(lowerPrompt, [
+        "tools",
+        "workflow",
+        "memory",
+        "steps",
+        "agent",
+      ])
+    ) {
+      score += 8;
+    }
   }
 
   return Math.min(score, 100);
@@ -216,7 +440,7 @@ function calculateImprovedScore(
   goal: string,
   depth: string,
   outputFormat: string,
-  mode: ApiMode
+  mode: ApiMode,
 ) {
   const depthBoost =
     depth === "Basic"
@@ -243,27 +467,34 @@ function calculateImprovedScore(
       ? 2
       : outputFormat === "Prompt + variants"
         ? 6
-        : outputFormat === "JSON format" || outputFormat === "Agent YAML format"
+        : outputFormat === "JSON format" ||
+            outputFormat === "Agent YAML format"
           ? 5
           : 4;
 
   const goalBoost =
-    goal === "Better output format" || goal === "More structured" ? 5 : 3;
+    goal === "Better output format" ||
+    goal === "More structured"
+      ? 5
+      : 3;
 
-  const realAiBoost = mode === "real_ai" ? 3 : 0;
+  const realAiBoost =
+    mode === "real_ai" ? 3 : 0;
 
   return Math.min(
     originalScore +
-    depthBoost +
-    categoryBoost +
-    formatBoost +
-    goalBoost +
-    realAiBoost,
-    99
+      depthBoost +
+      categoryBoost +
+      formatBoost +
+      goalBoost +
+      realAiBoost,
+    99,
   );
 }
 
-function getImageGoalInstruction(goal: string) {
+function getImageGoalInstruction(
+  goal: string,
+) {
   if (goal === "More detailed") {
     return "Add richer visual details, subject description, environment, texture, depth, and atmosphere.";
   }
@@ -297,14 +528,15 @@ function buildImagePrompt(
   goal: string,
   depth: string,
   outputFormat: string,
-  personalStyle: string
+  personalStyle: string,
 ) {
-  const styleBlock = personalStyle.trim()
-    ? `
+  const styleBlock =
+    personalStyle.trim()
+      ? `
 
 Personal Style Preference:
 ${personalStyle.trim()}`
-    : "";
+      : "";
 
   if (outputFormat === "Prompt only") {
     return `A premium, high-quality image based on this concept: ${prompt}. Use a modern professional visual style, strong composition, clear focal point, polished lighting, rich detail, clean background, balanced spacing, and a refined color palette. Add visual depth and a premium brand-ready aesthetic. Avoid blurry details, distorted objects, random text, messy layout, low-quality design, and clutter.`;
@@ -371,14 +603,15 @@ function buildGeneralPrompt(
   goal: string,
   depth: string,
   outputFormat: string,
-  personalStyle: string
+  personalStyle: string,
 ) {
-  const styleBlock = personalStyle.trim()
-    ? `
+  const styleBlock =
+    personalStyle.trim()
+      ? `
 
 Personal style preference:
 ${personalStyle.trim()}`
-    : "";
+      : "";
 
   return `Act as an expert ${category.toLowerCase()} prompt engineer.
 
@@ -427,7 +660,7 @@ function buildVariants(
   prompt: string,
   category: string,
   model: string,
-  goal: string
+  goal: string,
 ) {
   if (category === "Image Generation") {
     return [
@@ -444,7 +677,9 @@ function buildVariants(
   ];
 }
 
-function buildPatterns(category: string) {
+function buildPatterns(
+  category: string,
+) {
   if (category === "Image Generation") {
     return [
       "Visual style",
@@ -488,22 +723,42 @@ function buildPatterns(category: string) {
   ];
 }
 
-function safeStringArray(value: unknown, fallback: string[]) {
+function safeStringArray(
+  value: unknown,
+  fallback: string[],
+) {
   if (!Array.isArray(value)) {
     return fallback;
   }
 
   const cleaned = value
-    .filter((item) => typeof item === "string")
+    .filter(
+      (item): item is string =>
+        typeof item === "string",
+    )
     .map((item) => item.trim())
     .filter(Boolean);
 
-  return cleaned.length > 0 ? cleaned : fallback;
+  return cleaned.length > 0
+    ? cleaned
+    : fallback;
 }
 
-function parseAiJson(text: string): AiOptimizationJson | null {
+function parseAiJson(
+  text: string,
+): AiOptimizationJson | null {
   try {
-    return JSON.parse(text) as AiOptimizationJson;
+    const parsed = JSON.parse(text) as unknown;
+
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+
+    return parsed as AiOptimizationJson;
   } catch {
     const match = text.match(/\{[\s\S]*\}/);
 
@@ -512,97 +767,24 @@ function parseAiJson(text: string): AiOptimizationJson | null {
     }
 
     try {
-      return JSON.parse(match[0]) as AiOptimizationJson;
+      const parsed = JSON.parse(
+        match[0],
+      ) as unknown;
+
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
+
+      return parsed as AiOptimizationJson;
     } catch {
       return null;
     }
   }
 }
-
-function buildRealAiSystemPrompt(category: string) {
-  return buildOptimizerSystemPrompt(category);
-}
-
-function buildRealAiUserPrompt(params: {
-  prompt: string;
-  category: string;
-  model: string;
-  goal: string;
-  depth: string;
-  outputFormat: string;
-  personalStyle: string;
-}) {
-  return buildOptimizerUserPrompt(params);
-}
-
-async function buildRealAiOptimization(params: {
-  prompt: string;
-  category: string;
-  model: string;
-  goal: string;
-  depth: string;
-  outputFormat: string;
-  personalStyle: string;
-}) {
-  if (!openai) {
-    return null;
-  }
-
-  const completion = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    temperature: 0.4,
-    response_format: {
-      type: "json_object",
-    },
-    messages: [
-      {
-        role: "system",
-        content: buildRealAiSystemPrompt(params.category),
-      },
-      {
-        role: "user",
-        content: buildRealAiUserPrompt(params),
-      },
-    ],
-  });
-
-  const content = completion.choices[0]?.message?.content || "";
-  const parsed = parseAiJson(content);
-
-  if (!parsed?.improvedPrompt) {
-    throw new Error("OpenAI returned an invalid optimization response.");
-  }
-
-  return parsed;
-}
-
-async function buildOllamaOptimization(params: {
-  prompt: string;
-  category: string;
-  model: string;
-  goal: string;
-  depth: string;
-  outputFormat: string;
-  personalStyle: string;
-}) {
-  const systemPrompt = buildRealAiSystemPrompt(params.category);
-  const userPrompt = buildRealAiUserPrompt(params);
-
-  // Appelle notre connecteur local Ollama
-  const content = await chatWithOllama(systemPrompt, userPrompt, "llama3.2");
-  if (!content) {
-    throw new Error("Ollama returned an empty response.");
-  }
-
-  // Parse le JSON renvoyé par le modèle local
-  const parsed = parseAiJson(content);
-  if (!parsed?.improvedPrompt) {
-    throw new Error("Ollama response was not valid JSON or was missing improvedPrompt.");
-  }
-
-  return parsed;
-}
-
 
 function buildMockOptimization(params: {
   prompt: string;
@@ -616,22 +798,22 @@ function buildMockOptimization(params: {
   const improvedPrompt =
     params.category === "Image Generation"
       ? buildImagePrompt(
-        params.prompt,
-        params.model,
-        params.goal,
-        params.depth,
-        params.outputFormat,
-        params.personalStyle
-      )
+          params.prompt,
+          params.model,
+          params.goal,
+          params.depth,
+          params.outputFormat,
+          params.personalStyle,
+        )
       : buildGeneralPrompt(
-        params.prompt,
-        params.category,
-        params.model,
-        params.goal,
-        params.depth,
-        params.outputFormat,
-        params.personalStyle
-      );
+          params.prompt,
+          params.category,
+          params.model,
+          params.goal,
+          params.depth,
+          params.outputFormat,
+          params.personalStyle,
+        );
 
   return {
     improvedPrompt,
@@ -649,29 +831,71 @@ function buildMockOptimization(params: {
       params.prompt,
       params.category,
       params.model,
-      params.goal
+      params.goal,
     ),
     patterns: buildPatterns(params.category),
   };
 }
 
 export async function GET() {
-  const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
-  const ollamaModels = await getOllamaModels();
-  const hasOllama = ollamaModels.length > 0;
+  const configuredProvider =
+    getConfiguredAIProviderName();
 
-  let mode = "mock";
-  let aiProvider = "mock";
-  let message = "Optimize API is available. Mock mode is active because OpenAI and Ollama are unavailable.";
+  const provider = createAIProvider(
+    configuredProvider,
+  );
 
-  if (hasOpenAiKey) {
-    mode = "real_ai";
-    aiProvider = "openai";
-    message = "Optimize API is available. Real AI mode is enabled with OpenAI.";
-  } else if (hasOllama) {
-    mode = "real_ai";
-    aiProvider = "ollama";
-    message = `Optimize API is available. Local AI mode is enabled with Ollama. Detected models: ${ollamaModels.join(", ")}`;
+  let providerAvailable =
+    configuredProvider === "mock";
+
+  try {
+    const health =
+      await provider.healthCheck();
+
+    providerAvailable =
+      configuredProvider === "mock" ||
+      health.available;
+  } catch (error) {
+    console.error(
+      "Optimize provider health check failed:",
+      error,
+    );
+
+    providerAvailable = false;
+  }
+
+  const mode: ApiMode =
+    configuredProvider !== "mock" &&
+    providerAvailable
+      ? "real_ai"
+      : "mock";
+
+  const aiProvider: AiProvider =
+    mode === "real_ai"
+      ? configuredProvider
+      : "mock";
+
+  const providerModel =
+    mode === "real_ai"
+      ? getProviderModel(
+          configuredProvider,
+        )
+      : null;
+
+  let message =
+    "Optimize API is available. Mock mode is active.";
+
+  if (mode === "real_ai") {
+    message =
+      configuredProvider === "openai"
+        ? `Optimize API is available. Real AI mode is enabled with OpenAI model ${providerModel}.`
+        : `Optimize API is available. Local AI mode is enabled with Ollama model ${providerModel}.`;
+  } else if (
+    configuredProvider !== "mock" &&
+    !providerAvailable
+  ) {
+    message =
+      `Optimize API is available. Configured provider ${configuredProvider} is unavailable, so mock optimization will be used.`;
   }
 
   return NextResponse.json({
@@ -680,214 +904,239 @@ export async function GET() {
     status: "online",
     mode,
     aiProvider,
-    openAiModel: hasOpenAiKey ? OPENAI_MODEL : (hasOllama ? ollamaModels[0] : null),
+    openAiModel: providerModel,
     storageMode: "sqlite_prisma_ready",
     message,
-    supportedMethods: ["GET", "POST"],
+    supportedMethods: [
+      "GET",
+      "POST",
+    ],
   });
 }
 
-
-export async function POST(request: Request) {
+export async function POST(
+  request: Request,
+) {
   try {
     let body: OptimizeRequest;
 
     try {
-      body = (await request.json()) as OptimizeRequest;
+      body =
+        (await request.json()) as OptimizeRequest;
     } catch {
       return createErrorResponse(
         "Invalid JSON body.",
         400,
-        "Send a valid JSON object with at least a prompt field."
+        "Send a valid JSON object with at least a prompt field.",
       );
     }
 
-    const prompt = normalizeText(body.prompt);
-    const selectedCategory = normalizeText(body.category, "General");
-    const category = detectCategory(prompt, selectedCategory);
-    const model = normalizeText(body.model, "GPT-4.1 / GPT-5 style");
-    const goal = normalizeText(body.goal, "More structured");
-    const depth = normalizeText(body.depth, "Balanced");
-    const outputFormat = normalizeText(
-      body.outputFormat,
-      "Detailed explanation"
+    const prompt =
+      normalizeText(body.prompt);
+
+    const selectedCategory =
+      normalizeText(
+        body.category,
+        "General",
+      );
+
+    const category = detectCategory(
+      prompt,
+      selectedCategory,
     );
-    const personalStyle = normalizeMultilineText(body.personalStyle);
+
+    const model = normalizeText(
+      body.model,
+      "GPT-4.1 / GPT-5 style",
+    );
+
+    const goal = normalizeText(
+      body.goal,
+      "More structured",
+    );
+
+    const depth = normalizeText(
+      body.depth,
+      "Balanced",
+    );
+
+    const outputFormat =
+      normalizeText(
+        body.outputFormat,
+        "Detailed explanation",
+      );
+
+    const personalStyle =
+      normalizeMultilineText(
+        body.personalStyle,
+      );
 
     if (!prompt) {
       return createErrorResponse(
         "Prompt is required.",
         400,
-        "The prompt field cannot be empty."
+        "The prompt field cannot be empty.",
       );
     }
 
-    if (prompt.length > MAX_PROMPT_LENGTH) {
+    if (
+      prompt.length >
+      MAX_PROMPT_LENGTH
+    ) {
       return createErrorResponse(
         "Prompt is too long.",
         400,
-        `Maximum allowed prompt length is ${MAX_PROMPT_LENGTH} characters.`
+        `Maximum allowed prompt length is ${MAX_PROMPT_LENGTH} characters.`,
       );
     }
 
-    const originalScore = calculatePromptScore(prompt, category);
+    const originalScore =
+      calculatePromptScore(
+        prompt,
+        category,
+      );
 
-    const ollamaModels = await getOllamaModels();
-    const hasOllama = ollamaModels.length > 0;
+    let mode: ApiMode = "mock";
 
-    let mode: ApiMode = (openai || hasOllama) ? "real_ai" : "mock";
-    let aiProvider: AiProvider = openai ? "openai" : (hasOllama ? "ollama" : "mock");
+    let aiProvider: AiProvider =
+      "mock";
+
+    let aiModel: string | null =
+      null;
+
     let fallbackReason = "";
 
-    let optimization = buildMockOptimization({
-      prompt,
-      category,
-      model,
-      goal,
-      depth,
-      outputFormat,
-      personalStyle,
-    });
+    let optimization =
+      buildMockOptimization({
+        prompt,
+        category,
+        model,
+        goal,
+        depth,
+        outputFormat,
+        personalStyle,
+      });
 
-    if (openai) {
-      try {
-        const realAiOptimization = await buildRealAiOptimization({
-          prompt,
-          category,
-          model,
-          goal,
-          depth,
-          outputFormat,
-          personalStyle,
-        });
-
-        if (realAiOptimization) {
-          optimization = {
-            improvedPrompt: realAiOptimization.improvedPrompt || optimization.improvedPrompt,
-            explanation: safeStringArray(
-              realAiOptimization.explanation,
-              optimization.explanation
-            ),
-            variants: safeStringArray(
-              realAiOptimization.variants,
-              optimization.variants
-            ),
-            patterns: safeStringArray(
-              realAiOptimization.patterns,
-              optimization.patterns
-            ),
-          };
-        }
-      } catch (error) {
-        console.error("OpenAI optimization failed. Falling back to local/mock:", error);
-        fallbackReason = error instanceof Error ? error.message : "OpenAI failed";
-
-        // Si OpenAI échoue mais qu'Ollama est disponible en local, on bascule sur Ollama
-        if (hasOllama) {
-          try {
-            aiProvider = "ollama";
-            const localOptimization = await buildOllamaOptimization({
-              prompt,
-              category,
-              model,
-              goal,
-              depth,
-              outputFormat,
-              personalStyle,
-            });
-
-            optimization = {
-              improvedPrompt: localOptimization.improvedPrompt || optimization.improvedPrompt,
-              explanation: safeStringArray(
-                localOptimization.explanation,
-                optimization.explanation
+    const aiResponse =
+      await generateWithAIRuntime({
+        messages: [
+          {
+            role: "system",
+            content:
+              buildOptimizerSystemPrompt(
+                category,
               ),
-              variants: safeStringArray(
-                localOptimization.variants,
-                optimization.variants
-              ),
-              patterns: safeStringArray(
-                localOptimization.patterns,
-                optimization.patterns
-              ),
-            };
-          } catch (ollamaErr) {
-            console.error("Ollama fallback failed too:", ollamaErr);
-            mode = "mock";
-            aiProvider = "mock";
-            fallbackReason += " & Ollama fallback failed too.";
-          }
-        } else {
-          mode = "mock";
-          aiProvider = "mock";
-        }
-      }
-    } else if (hasOllama) {
-      try {
-        const localOptimization = await buildOllamaOptimization({
-          prompt,
-          category,
-          model,
-          goal,
-          depth,
-          outputFormat,
-          personalStyle,
-        });
+          },
+          {
+            role: "user",
+            content:
+              buildOptimizerUserPrompt({
+                prompt,
+                category,
+                model,
+                goal,
+                depth,
+                outputFormat,
+                personalStyle,
+              }),
+          },
+        ],
+        temperature: 0.4,
+      });
 
+    if (aiResponse.success) {
+      const parsed = parseAiJson(
+        aiResponse.content,
+      );
+
+      const improvedPrompt =
+        normalizeMultilineText(
+          parsed?.improvedPrompt,
+        );
+
+      if (improvedPrompt) {
         optimization = {
-          improvedPrompt: localOptimization.improvedPrompt || optimization.improvedPrompt,
-          explanation: safeStringArray(
-            localOptimization.explanation,
-            optimization.explanation
-          ),
-          variants: safeStringArray(
-            localOptimization.variants,
-            optimization.variants
-          ),
-          patterns: safeStringArray(
-            localOptimization.patterns,
-            optimization.patterns
-          ),
+          improvedPrompt,
+          explanation:
+            safeStringArray(
+              parsed?.explanation,
+              optimization.explanation,
+            ),
+          variants:
+            safeStringArray(
+              parsed?.variants,
+              optimization.variants,
+            ),
+          patterns:
+            safeStringArray(
+              parsed?.patterns,
+              optimization.patterns,
+            ),
         };
-      } catch (error) {
-        console.error("Ollama optimization failed. Falling back to mock:", error);
-        mode = "mock";
-        aiProvider = "mock";
-        fallbackReason = error instanceof Error ? error.message : "Ollama request failed.";
+
+        if (
+          aiResponse.provider !==
+          "mock"
+        ) {
+          mode = "real_ai";
+          aiProvider =
+            aiResponse.provider;
+          aiModel =
+            aiResponse.model;
+        }
+      } else {
+        fallbackReason =
+          `${aiResponse.provider} returned an invalid optimization response.`;
       }
+    } else {
+      fallbackReason =
+        aiResponse.error ||
+        `${aiResponse.provider} optimization failed.`;
     }
 
-    const improvedScore = calculateImprovedScore(
-      originalScore,
-      category,
-      goal,
-      depth,
-      outputFormat,
-      mode
-    );
+    const improvedScore =
+      calculateImprovedScore(
+        originalScore,
+        category,
+        goal,
+        depth,
+        outputFormat,
+        mode,
+      );
 
-    const scoreGain = improvedScore - originalScore;
+    const scoreGain =
+      improvedScore -
+      originalScore;
 
     return NextResponse.json({
       success: true,
 
       mode,
       aiProvider,
-      openAiModel: aiProvider === "openai" ? OPENAI_MODEL : (aiProvider === "ollama" ? (ollamaModels[0] || "llama3.2") : null),
-      storageMode: "sqlite_prisma_ready",
-      engineStatus: mode === "real_ai" ? "real_ai" : "mock_api",
+      openAiModel: aiModel,
+      storageMode:
+        "sqlite_prisma_ready",
+      engineStatus:
+        mode === "real_ai"
+          ? "real_ai"
+          : "mock_api",
       fallbackReason,
 
       originalPrompt: prompt,
       originalScore,
       improvedScore,
       scoreGain,
-      improvedPrompt: optimization.improvedPrompt,
+      improvedPrompt:
+        optimization.improvedPrompt,
 
-      explanation: optimization.explanation,
+      explanation:
+        optimization.explanation,
 
-      variants: optimization.variants,
-      patterns: optimization.patterns,
+      variants:
+        optimization.variants,
+
+      patterns:
+        optimization.patterns,
 
       scoringNotes: [
         `Original quality is ${originalScore}%. It measures clarity, length, context, structure, constraints, and use-case-specific signals.`,
@@ -895,32 +1144,43 @@ export async function POST(request: Request) {
         `Score gain is +${scoreGain} points.`,
         `Detected use case: ${category}.`,
         mode === "real_ai"
-          ? `Real AI mode is active using ${aiProvider === "openai" ? `OpenAI model: ${OPENAI_MODEL}` : `Ollama model: ${ollamaModels[0] || "llama3.2"}`}.`
-          : "Mock optimizer mode is active.",
+          ? `Real AI mode is active using ${aiProvider} model ${aiModel}.`
+          : fallbackReason
+            ? `Mock optimizer mode is active because ${fallbackReason}`
+            : "Mock optimizer mode is active.",
       ],
 
       request: {
-        category: selectedCategory,
-        detectedCategory: category,
+        category:
+          selectedCategory,
+        detectedCategory:
+          category,
         model,
         goal,
         depth,
         outputFormat,
-        hasPersonalStyle: Boolean(personalStyle),
+        hasPersonalStyle:
+          Boolean(personalStyle),
       },
 
-      detectedCategory: category,
+      detectedCategory:
+        category,
 
       nextStep:
         "Save this optimization to SQLite history, collect feedback, and use the feedback later as PromptMaster training data.",
     });
   } catch (error) {
-    console.error("Optimize API error:", error);
+    console.error(
+      "Optimize API error:",
+      error,
+    );
 
     return createErrorResponse(
       "Something went wrong while optimizing the prompt.",
       500,
-      error instanceof Error ? error.message : "Unknown server error."
+      error instanceof Error
+        ? error.message
+        : "Unknown server error.",
     );
   }
 }
