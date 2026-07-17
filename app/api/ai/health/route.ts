@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { internalServerError } from "../../../lib/api-response";
 import {
   createAIProvider,
   getConfiguredAIProviderName,
@@ -30,39 +31,50 @@ async function checkProvider(
 }
 
 export async function GET(request: NextRequest) {
-  const configuredProvider = getConfiguredAIProviderName();
+  try {
+    const configuredProvider =
+      getConfiguredAIProviderName();
 
-  const checkAllProviders =
-    request.nextUrl.searchParams.get("all") === "true";
+    const checkAllProviders =
+      request.nextUrl.searchParams.get("all") === "true";
 
-  const providersToCheck = checkAllProviders
-    ? PROVIDER_NAMES
-    : [configuredProvider];
+    const providersToCheck = checkAllProviders
+      ? PROVIDER_NAMES
+      : [configuredProvider];
 
-  const healthResults = await Promise.all(
-    providersToCheck.map(checkProvider),
-  );
+    const healthResults = await Promise.all(
+      providersToCheck.map(checkProvider),
+    );
 
-  const configuredProviderHealth = healthResults.find(
-    (health) => health.provider === configuredProvider,
-  );
+    const configuredProviderHealth =
+      healthResults.find(
+        (health) =>
+          health.provider === configuredProvider,
+      );
 
-  const configuredProviderAvailable =
-    configuredProviderHealth?.available ?? false;
+    const configuredProviderAvailable =
+      configuredProviderHealth?.available ?? false;
 
-  return NextResponse.json(
-    {
-      success: configuredProviderAvailable,
-      configuredProvider,
-      configuredProviderAvailable,
-      checkMode: checkAllProviders
-        ? "all_providers"
-        : "configured_provider_only",
-      providers: healthResults,
-      checkedAt: new Date().toISOString(),
-    },
-    {
-      status: configuredProviderAvailable ? 200 : 503,
-    },
-  );
+    return NextResponse.json(
+      {
+        success: configuredProviderAvailable,
+        configuredProvider,
+        configuredProviderAvailable,
+        checkMode: checkAllProviders
+          ? "all_providers"
+          : "configured_provider_only",
+        providers: healthResults,
+        checkedAt: new Date().toISOString(),
+      },
+      {
+        status: configuredProviderAvailable ? 200 : 503,
+      },
+    );
+  } catch (error) {
+    console.error("AI health GET error:", error);
+
+    return internalServerError(
+      "Something went wrong while checking AI provider health.",
+    );
+  }
 }
