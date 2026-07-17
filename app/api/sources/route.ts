@@ -6,6 +6,7 @@ import {
 } from "next/server";
 
 import { prisma } from "../../lib/prisma";
+import { generateWithAIRuntime } from "../../lib/ai/runtime";
 
 const ALLOWED_SOURCE_STATUSES = [
   "active",
@@ -251,6 +252,85 @@ function buildMockPrompts(
   ];
 }
 
+function buildSourceScannerSystemPrompt(sourceName: string, sourceType: string): string {
+  return `You are PromptMaster Ingestion Agent.
+Your job is to simulate crawling the source "${sourceName}" (Type: "${sourceType}") and extract exactly 3 high-quality, realistic prompt engineering templates that are representative of what users share on this platform.
+
+For each prompt, determine:
+1. A descriptive title.
+2. The complete prompt template content.
+3. The prompt category (e.g. Coding, Writing, Image Generation, Research, General, etc.).
+4. A qualityScore between 50 and 100 based on how well-structured and useful the prompt is.
+
+Output the result in valid JSON only, conforming to the exact schema defined below. Do not wrap the JSON in markdown code blocks (\`\`\`), do not write explanations before or after the JSON.
+
+Expected JSON output format:
+{
+  "prompts": [
+    {
+      "title": "Descriptive title 1",
+      "prompt": "Full prompt template content 1",
+      "category": "Category 1",
+      "qualityScore": 85
+    },
+    {
+      "title": "Descriptive title 2",
+      "prompt": "Full prompt template content 2",
+      "category": "Category 2",
+      "qualityScore": 75
+    },
+    {
+      "title": "Descriptive title 3",
+      "prompt": "Full prompt template content 3",
+      "category": "Category 3",
+      "qualityScore": 90
+    }
+  ]
+}`;
+}
+
+function buildSourceScannerUserPrompt(sourceName: string, sourceType: string, sourceUrl: string | null): string {
+  const urlPart = sourceUrl ? ` located at URL: ${sourceUrl}` : "";
+  return `Simulate crawling the source: "${sourceName}" (Type: ${sourceType})${urlPart}.
+Generate exactly 3 high-quality prompt templates found on this source and return them in the expected JSON schema.`;
+}
+
+type ScannedPrompt = {
+  title: string;
+  prompt: string;
+  category: string;
+  qualityScore: number;
+};
+
+type ScannedResponseJson = {
+  prompts?: ScannedPrompt[];
+};
+
+function parseSourceScanJson(text: string): ScannedResponseJson | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as ScannedResponseJson;
+  } catch {
+    const match = text.match(/\\{[\\s\\S]*\\}/);
+    if (!match) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(match[0]) as unknown;
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return null;
+      }
+      return parsed as ScannedResponseJson;
+    } catch {
+      return null;
+    }
+  }
+}
+
+
 export async function GET() {
   try {
     const isAdmin =
@@ -398,204 +478,139 @@ export async function POST(
       );
     }
 
-    /*
-     * MODULE 8:
-     * Scan an existing Source and create mock
-     * DiscoveredPrompt records linked by sourceId.
-     */
     if (body.action === "scan") {
-      const sourceId =
-        normalizeText(body.sourceId);
+      const sourceId = normalizeText(body.sourceId);
 
       if (!sourceId) {
         return NextResponse.json(
           {
             success: false,
-            scanStatus:
-              "failed",
-            error:
-              "Source ID is required for scanning.",
+            scanStatus: "failed",
+            error: "Source ID is required for scanning.",
           },
-          {
-            status: 400,
-          }
+          { status: 400 }
         );
       }
 
-      const scanResult =
-        await prisma.$transaction(
-          async (transaction) => {
-            const source =
-              await transaction.source.findUnique({
-                where: {
-                  id: sourceId,
-                },
-                include: {
-                  _count: {
-                    select: {
-                      discoveredPrompts:
-                        true,
-                    },
-                  },
-                },
-              });
+      // 1. Fetch source details outside transaction
+      const source = await prisma.source.findUnique({
+        where: { id: sourceId },
+      });
 
-            if (!source) {
-              return {
-                kind:
-                  "not_found" as const,
-              };
-            }
-
-            if (
-              source.status !== "active"
-            ) {
-              return {
-                kind:
-                  "inactive" as const,
-                status:
-                  source.status,
-              };
-            }
-
-            if (
-              source.lastScanAt &&
-              Date.now() -
-                source.lastScanAt.getTime() <
-                SCAN_COOLDOWN_MS
-            ) {
-              return {
-                kind:
-                  "cooldown" as const,
-                lastScanAt:
-                  source.lastScanAt,
-              };
-            }
-
-            const mockPrompts =
-              buildMockPrompts(source);
-
-            await transaction.discoveredPrompt.createMany({
-              data:
-                mockPrompts,
-            });
-
-            const scanCompletedAt =
-              new Date();
-
-            const updatedSource =
-              await transaction.source.update({
-                where: {
-                  id: sourceId,
-                },
-                data: {
-                  lastScanAt:
-                    scanCompletedAt,
-                },
-                include: {
-                  _count: {
-                    select: {
-                      discoveredPrompts:
-                        true,
-                    },
-                  },
-                },
-              });
-
-            return {
-              kind:
-                "completed" as const,
-              source:
-                updatedSource,
-              createdPrompts:
-                mockPrompts,
-              createdCount:
-                mockPrompts.length,
-            };
-          }
-        );
-
-      if (
-        scanResult.kind ===
-        "not_found"
-      ) {
+      if (!source) {
         return NextResponse.json(
           {
             success: false,
-            scanStatus:
-              "failed",
-            error:
-              "Source not found.",
+            scanStatus: "failed",
+            error: "Source not found.",
           },
+          { status: 404 }
+        );
+      }
+
+      if (source.status !== "active") {
+        return NextResponse.json(
           {
-            status: 404,
-          }
+            success: false,
+            scanStatus: "failed",
+            error: `Only active sources can be scanned. Current status: ${source.status}.`,
+          },
+          { status: 400 }
         );
       }
 
       if (
-        scanResult.kind ===
-        "inactive"
+        source.lastScanAt &&
+        Date.now() - source.lastScanAt.getTime() < SCAN_COOLDOWN_MS
       ) {
         return NextResponse.json(
           {
             success: false,
-            scanStatus:
-              "failed",
-            error:
-              `Only active sources can be scanned. Current status: ${scanResult.status}.`,
+            scanStatus: "failed",
+            error: "This source was scanned recently. Please wait a few seconds before scanning again.",
+            lastScanAt: source.lastScanAt.toISOString(),
           },
-          {
-            status: 400,
-          }
+          { status: 409 }
         );
       }
 
-      if (
-        scanResult.kind ===
-        "cooldown"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            scanStatus:
-              "failed",
-            error:
-              "This source was scanned recently. Please wait a few seconds before scanning again.",
-            lastScanAt:
-              scanResult.lastScanAt.toISOString(),
-          },
-          {
-            status: 409,
+      // 2. Perform the LLM scan using standard prompt templates
+      let promptsToInsert = buildMockPrompts(source);
+      let scanStatus = "mock";
+
+      try {
+        const aiResponse = await generateWithAIRuntime({
+          messages: [
+            {
+              role: "system",
+              content: buildSourceScannerSystemPrompt(source.name, source.type),
+            },
+            {
+              role: "user",
+              content: buildSourceScannerUserPrompt(source.name, source.type, source.url),
+            },
+          ],
+          temperature: 0.6,
+        });
+
+        if (aiResponse.success) {
+          const parsed = parseSourceScanJson(aiResponse.content);
+          if (parsed && parsed.prompts && Array.isArray(parsed.prompts) && parsed.prompts.length > 0) {
+            const timestamp = new Date();
+            promptsToInsert = parsed.prompts.map((p) => ({
+              sourceId: source.id,
+              title: normalizeText(p.title) || `${source.name} prompt candidate`,
+              prompt: normalizeText(p.prompt),
+              category: normalizeText(p.category) || "General",
+              model: "General",
+              qualityScore: Math.max(50, Math.min(100, Math.round(Number(p.qualityScore) || 75))),
+              sourceUrl: source.url,
+              status: "pending",
+              discoveredAt: timestamp,
+            })).filter(p => p.prompt); // make sure prompt body is present
+            scanStatus = aiResponse.provider;
           }
-        );
+        }
+      } catch (error) {
+        console.error("AI scanning error, falling back to mock prompts:", error);
       }
+
+      // 3. Insert discovered prompts and update the source timestamp inside a transaction
+      const scanCompletedAt = new Date();
+      const updatedSource = await prisma.$transaction(async (transaction) => {
+        if (promptsToInsert.length > 0) {
+          await transaction.discoveredPrompt.createMany({
+            data: promptsToInsert,
+          });
+        }
+        return await transaction.source.update({
+          where: { id: sourceId },
+          data: { lastScanAt: scanCompletedAt },
+          include: {
+            _count: {
+              select: { discoveredPrompts: true },
+            },
+          },
+        });
+      });
+
+      const messageSuffix = scanStatus === "mock" 
+        ? "(mock generation fallback)" 
+        : `via ${scanStatus} engine`;
 
       return NextResponse.json(
         {
           success: true,
-          scanStatus:
-            "completed",
-          message:
-            `${scanResult.createdCount} discovered prompts were generated successfully.`,
-          createdCount:
-            scanResult.createdCount,
-          createdPrompts:
-            scanResult.createdPrompts,
-          item:
-            formatSourceItem(
-              scanResult.source
-            ),
+          scanStatus: "completed",
+          message: `${promptsToInsert.length} discovered prompts were generated successfully ${messageSuffix}.`,
+          createdCount: promptsToInsert.length,
+          createdPrompts: promptsToInsert,
+          item: formatSourceItem(updatedSource),
         },
-        {
-          status: 201,
-        }
+        { status: 201 }
       );
     }
 
-    /*
-     * Normal Source creation.
-     */
     const name =
       normalizeText(body.name);
 
