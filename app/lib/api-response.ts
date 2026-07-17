@@ -3,12 +3,14 @@ import { NextResponse } from "next/server";
 type ApiSuccessOptions = {
   status?: number;
   message?: string;
+  extra?: Record<string, unknown>;
 };
 
 type ApiErrorOptions = {
   status?: number;
   code?: string;
   details?: unknown;
+  extra?: Record<string, unknown>;
 };
 
 export function apiSuccess<T>(
@@ -18,12 +20,14 @@ export function apiSuccess<T>(
   const {
     status = 200,
     message,
+    extra,
   } = options;
 
   return NextResponse.json(
     {
       success: true,
       ...(message ? { message } : {}),
+      ...(extra ?? {}),
       data,
     },
     {
@@ -40,6 +44,7 @@ export function apiError(
     status = 500,
     code = "INTERNAL_SERVER_ERROR",
     details,
+    extra,
   } = options;
 
   return NextResponse.json(
@@ -47,6 +52,7 @@ export function apiError(
       success: false,
       error,
       code,
+      ...(extra ?? {}),
       ...(details !== undefined
         ? { details }
         : {}),
@@ -90,11 +96,13 @@ export function badRequest(
 }
 
 export function unauthorized(
-  error = "Authentication required."
+  error = "Authentication required.",
+  extra?: Record<string, unknown>
 ) {
   return apiError(error, {
     status: 401,
     code: "UNAUTHORIZED",
+    extra,
   });
 }
 
@@ -130,10 +138,12 @@ export function conflict(
 
 export function internalServerError(
   error =
-    "Something went wrong. Please try again."
+    "Something went wrong. Please try again.",
+  extra?: Record<string, unknown>
 ) {
   return apiError(error, {
     status: 500,
     code: "INTERNAL_SERVER_ERROR",
+    extra,
   });
 }
