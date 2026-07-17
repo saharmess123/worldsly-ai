@@ -1,43 +1,72 @@
-import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+
+import {
+  apiError,
+  apiSuccess,
+  unauthorized,
+} from "../../../lib/api-response";
 import { verifyToken } from "../../../lib/auth";
 
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const tokenCookie = cookieStore.get("wordsly_session");
+    const tokenCookie =
+      cookieStore.get("wordsly_session");
 
-    if (!tokenCookie || !tokenCookie.value) {
-      return NextResponse.json(
-        { success: false, authenticated: false, error: "Not authenticated." },
-        { status: 401 }
+    if (
+      !tokenCookie ||
+      !tokenCookie.value
+    ) {
+      return unauthorized(
+        "Not authenticated.",
+        {
+          authenticated: false,
+        }
       );
     }
 
-    const decoded = verifyToken(tokenCookie.value);
+    const decoded =
+      verifyToken(tokenCookie.value);
 
     if (!decoded) {
-      return NextResponse.json(
-        { success: false, authenticated: false, error: "Invalid session." },
-        { status: 401 }
+      return unauthorized(
+        "Invalid session.",
+        {
+          authenticated: false,
+        }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      authenticated: true,
-      user: {
-        id: decoded.userId,
-        email: decoded.email,
-        role: decoded.role,
-        name: decoded.name,
+    return apiSuccess(
+      {
+        user: {
+          id: decoded.userId,
+          email: decoded.email,
+          role: decoded.role,
+          name: decoded.name,
+        },
       },
-    });
+      {
+        extra: {
+          authenticated: true,
+        },
+      }
+    );
   } catch (error) {
-    console.error("Auth me error:", error);
-    return NextResponse.json(
-      { success: false, authenticated: false, error: "Server error." },
-      { status: 500 }
+    console.error(
+      "Auth me error:",
+      error
+    );
+
+    return apiError(
+      "Server error.",
+      {
+        status: 500,
+        code: "AUTH_ME_FAILED",
+        extra: {
+          authenticated: false,
+        },
+      }
     );
   }
 }

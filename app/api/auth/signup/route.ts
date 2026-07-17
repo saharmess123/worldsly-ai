@@ -1,69 +1,123 @@
-import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
+import {
+  apiError,
+  badRequest,
+  conflict,
+} from "../../../lib/api-response";
 import { hashPassword } from "../../../lib/auth";
+import { prisma } from "../../../lib/prisma";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { name, email, password } = body;
+    let body: unknown;
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { success: false, error: "Email and password are required." },
-        { status: 400 }
+    try {
+      body = await request.json();
+    } catch {
+      return badRequest("Invalid JSON body.");
+    }
+
+    if (
+      typeof body !== "object" ||
+      body === null
+    ) {
+      return badRequest("Invalid request body.");
+    }
+
+    const {
+      name,
+      email,
+      password,
+    } = body as {
+      name?: unknown;
+      email?: unknown;
+      password?: unknown;
+    };
+
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      !password
+    ) {
+      return badRequest(
+        "Email and password are required."
       );
     }
 
-    const emailTrimmed = email.trim().toLowerCase();
+    const emailTrimmed =
+      email.trim().toLowerCase();
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email: emailTrimmed },
-    });
+    const existingUser =
+      await prisma.user.findUnique({
+        where: {
+          email: emailTrimmed,
+        },
+      });
 
     if (existingUser) {
-      return NextResponse.json(
-        { success: false, error: "Email is already registered." },
-        { status: 400 }
+      return conflict(
+        "Email is already registered."
       );
     }
 
-    // Determine role (the first user registered becomes Admin automatically)
-    const userCount = await prisma.user.count();
-    const role = userCount === 0 ? "admin" : "user";
+    const userCount =
+      await prisma.user.count();
 
-    const passwordHash = hashPassword(password);
+    const role =
+      userCount === 0
+        ? "admin"
+        : "user";
 
-    const user = await prisma.user.create({
-      data: {
-        name: name ? name.trim() : null,
-        email: emailTrimmed,
-        passwordHash,
-        role,
-        settings: {
-          create: {}, // Create default settings
+    const passwordHash =
+      hashPassword(password);
+
+    const user =
+      await prisma.user.create({
+        data: {
+          name:
+            typeof name === "string" &&
+            name.trim()
+              ? name.trim()
+              : null,
+          email: emailTrimmed,
+          passwordHash,
+          role,
+          settings: {
+            create: {},
+          },
         },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        createdAt: true,
-      },
-    });
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          createdAt: true,
+        },
+      });
 
-    return NextResponse.json({
-      success: true,
-      message: `User created successfully as ${role}.`,
-      user,
-    });
+    return Response.json(
+      {
+        success: true,
+        message:
+          `User created successfully as ${role}.`,
+        user,
+      },
+      {
+        status: 201,
+      }
+    );
   } catch (error) {
-    console.error("Signup error:", error);
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json(
-      { success: false, error: "Failed to sign up: " + message },
-      { status: 500 }
+    console.error(
+      "Signup error:",
+      error
+    );
+
+    return apiError(
+      "Failed to sign up.",
+      {
+        status: 500,
+        code: "SIGNUP_FAILED",
+      }
     );
   }
 }

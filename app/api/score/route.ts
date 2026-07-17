@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import {
+  apiError,
+  internalServerError,
+} from "../../lib/api-response";
+import {
   buildScorerSystemPrompt,
   buildScorerUserPrompt,
 } from "../../lib/ai/prompts";
@@ -262,20 +266,25 @@ function mergeBreakdown(
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as ScoreRequest;
+    let body: ScoreRequest;
+
+    try {
+      body = (await request.json()) as ScoreRequest;
+    } catch {
+      return apiError("Invalid JSON body.", {
+        status: 400,
+        code: "INVALID_JSON_BODY",
+      });
+    }
 
     const prompt = normalizePrompt(body.prompt || "");
     const category = body.category || "General";
 
     if (!prompt) {
-      return NextResponse.json(
-        {
-          error: "Prompt is required.",
-        },
-        {
-          status: 400,
-        },
-      );
+      return apiError("Prompt is required.", {
+        status: 400,
+        code: "PROMPT_REQUIRED",
+      });
     }
 
     let score = calculatePromptScore(prompt, category);
@@ -373,14 +382,8 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Scoring handler error:", error);
 
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while scoring the prompt.",
-      },
-      {
-        status: 500,
-      },
+    return internalServerError(
+      "Something went wrong while scoring the prompt.",
     );
   }
 }
