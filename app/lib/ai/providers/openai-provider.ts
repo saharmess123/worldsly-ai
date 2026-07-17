@@ -9,8 +9,67 @@ import type {
 const DEFAULT_OPENAI_MODEL =
   process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+interface OpenAIErrorLike {
+  status?: unknown;
+  code?: unknown;
+  name?: unknown;
+}
+
+function getSafeOpenAIErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  const openAIError =
+    typeof error === "object" && error !== null
+      ? (error as OpenAIErrorLike)
+      : null;
+
+  const status =
+    typeof openAIError?.status === "number"
+      ? openAIError.status
+      : undefined;
+
+  const code =
+    typeof openAIError?.code === "string"
+      ? openAIError.code
+      : undefined;
+
+  const name =
+    typeof openAIError?.name === "string"
+      ? openAIError.name
+      : undefined;
+
+  if (status === 401) {
+    return "OpenAI authentication failed. Check OPENAI_API_KEY.";
+  }
+
+  if (status === 403) {
+    return "OpenAI access was denied for the configured API key.";
+  }
+
+  if (status === 429) {
+    return "OpenAI quota or rate limit was exceeded.";
+  }
+
+  if (status && status >= 500) {
+    return "OpenAI is temporarily unavailable.";
+  }
+
+  if (
+    code === "ETIMEDOUT" ||
+    name === "APIConnectionTimeoutError"
+  ) {
+    return "OpenAI request timed out.";
+  }
+
+  if (
+    name === "APIConnectionError" ||
+    code === "ECONNREFUSED"
+  ) {
+    return "Unable to connect to OpenAI.";
+  }
+
+  return fallback;
 }
 
 export class OpenAIProvider implements AIProvider {
@@ -32,7 +91,8 @@ export class OpenAIProvider implements AIProvider {
 
     const hasUserMessage = request.messages.some(
       (message) =>
-        message.role === "user" && message.content.trim().length > 0,
+        message.role === "user" &&
+        message.content.trim().length > 0,
     );
 
     if (!hasUserMessage) {
@@ -58,26 +118,27 @@ export class OpenAIProvider implements AIProvider {
     }
 
     try {
-      const completion = await this.client.chat.completions.create(
-        {
-          model,
-          messages: request.messages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-          temperature: request.temperature ?? 0.4,
-          ...(request.maxTokens
+      const completion =
+        await this.client.chat.completions.create(
+          {
+            model,
+            messages: request.messages.map((message) => ({
+              role: message.role,
+              content: message.content,
+            })),
+            temperature: request.temperature ?? 0.4,
+            ...(request.maxTokens
+              ? {
+                  max_completion_tokens: request.maxTokens,
+                }
+              : {}),
+          },
+          request.timeoutMs
             ? {
-                max_completion_tokens: request.maxTokens,
+                timeout: request.timeoutMs,
               }
-            : {}),
-        },
-        request.timeoutMs
-          ? {
-              timeout: request.timeoutMs,
-            }
-          : undefined,
-      );
+            : undefined,
+        );
 
       const content =
         completion.choices[0]?.message?.content?.trim() || "";
@@ -107,9 +168,9 @@ export class OpenAIProvider implements AIProvider {
         content: "",
         latencyMs: Date.now() - startedAt,
         success: false,
-        error: getErrorMessage(
+        error: getSafeOpenAIErrorMessage(
           error,
-          "Unknown OpenAI provider error.",
+          "OpenAI request failed.",
         ),
       };
     }
@@ -140,9 +201,9 @@ export class OpenAIProvider implements AIProvider {
         provider: this.name,
         available: false,
         latencyMs: Date.now() - startedAt,
-        error: getErrorMessage(
+        error: getSafeOpenAIErrorMessage(
           error,
-          "Unknown OpenAI health-check error.",
+          "OpenAI health check failed.",
         ),
       };
     }
