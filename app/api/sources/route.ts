@@ -9,7 +9,6 @@ import {
   internalServerError,
 } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
-import { generateWithAIRuntime } from "../../lib/ai/runtime";
 
 const ALLOWED_SOURCE_STATUSES = [
   "active",
@@ -265,85 +264,6 @@ function buildMockPrompts(
   ];
 }
 
-function buildSourceScannerSystemPrompt(sourceName: string, sourceType: string): string {
-  return `You are PromptMaster Ingestion Agent.
-Your job is to simulate crawling the source "${sourceName}" (Type: "${sourceType}") and extract exactly 3 high-quality, realistic prompt engineering templates that are representative of what users share on this platform.
-
-For each prompt, determine:
-1. A descriptive title.
-2. The complete prompt template content.
-3. The prompt category (e.g. Coding, Writing, Image Generation, Research, General, etc.).
-4. A qualityScore between 50 and 100 based on how well-structured and useful the prompt is.
-
-Output the result in valid JSON only, conforming to the exact schema defined below. Do not wrap the JSON in markdown code blocks (\`\`\`), do not write explanations before or after the JSON.
-
-Expected JSON output format:
-{
-  "prompts": [
-    {
-      "title": "Descriptive title 1",
-      "prompt": "Full prompt template content 1",
-      "category": "Category 1",
-      "qualityScore": 85
-    },
-    {
-      "title": "Descriptive title 2",
-      "prompt": "Full prompt template content 2",
-      "category": "Category 2",
-      "qualityScore": 75
-    },
-    {
-      "title": "Descriptive title 3",
-      "prompt": "Full prompt template content 3",
-      "category": "Category 3",
-      "qualityScore": 90
-    }
-  ]
-}`;
-}
-
-function buildSourceScannerUserPrompt(sourceName: string, sourceType: string, sourceUrl: string | null): string {
-  const urlPart = sourceUrl ? ` located at URL: ${sourceUrl}` : "";
-  return `Simulate crawling the source: "${sourceName}" (Type: ${sourceType})${urlPart}.
-Generate exactly 3 high-quality prompt templates found on this source and return them in the expected JSON schema.`;
-}
-
-type ScannedPrompt = {
-  title: string;
-  prompt: string;
-  category: string;
-  qualityScore: number;
-};
-
-type ScannedResponseJson = {
-  prompts?: ScannedPrompt[];
-};
-
-function parseSourceScanJson(text: string): ScannedResponseJson | null {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as ScannedResponseJson;
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(match[0]) as unknown;
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        return null;
-      }
-      return parsed as ScannedResponseJson;
-    } catch {
-      return null;
-    }
-  }
-}
-
-
 export async function GET() {
   try {
     const isAdmin =
@@ -493,8 +413,8 @@ export async function POST(
 
     /*
      * MODULE 8:
-     * Scan an existing source and create discovered prompts
-     * linked to the source.
+     * Scan an existing Source and create mock
+     * DiscoveredPrompt records linked by sourceId.
      */
     if (
       body.action === "scan"
@@ -519,15 +439,108 @@ export async function POST(
         );
       }
 
-      // 1. Fetch the source before calling the AI runtime.
-      const source =
-        await prisma.source.findUnique({
-          where: {
-            id: sourceId,
-          },
-        });
+      const scanResult =
+        await prisma.$transaction(
+          async (
+            transaction,
+          ) => {
+            const source =
+              await transaction.source.findUnique({
+                where: {
+                  id: sourceId,
+                },
+                include: {
+                  _count: {
+                    select: {
+                      discoveredPrompts:
+                        true,
+                    },
+                  },
+                },
+              });
 
-      if (!source) {
+            if (!source) {
+              return {
+                kind:
+                  "not_found" as const,
+              };
+            }
+
+            if (
+              source.status !==
+              "active"
+            ) {
+              return {
+                kind:
+                  "inactive" as const,
+                status:
+                  source.status,
+              };
+            }
+
+            if (
+              source.lastScanAt &&
+              Date.now() -
+                source.lastScanAt.getTime() <
+                SCAN_COOLDOWN_MS
+            ) {
+              return {
+                kind:
+                  "cooldown" as const,
+                lastScanAt:
+                  source.lastScanAt,
+              };
+            }
+
+            const mockPrompts =
+              buildMockPrompts(
+                source,
+              );
+
+            await transaction.discoveredPrompt.createMany({
+              data:
+                mockPrompts,
+            });
+
+            const scanCompletedAt =
+              new Date();
+
+            const updatedSource =
+              await transaction.source.update({
+                where: {
+                  id: sourceId,
+                },
+                data: {
+                  lastScanAt:
+                    scanCompletedAt,
+                },
+                include: {
+                  _count: {
+                    select: {
+                      discoveredPrompts:
+                        true,
+                    },
+                  },
+                },
+              });
+
+            return {
+              kind:
+                "completed" as const,
+              source:
+                updatedSource,
+              createdPrompts:
+                mockPrompts,
+              createdCount:
+                mockPrompts.length,
+            };
+          },
+        );
+
+      if (
+        scanResult.kind ===
+        "not_found"
+      ) {
         return NextResponse.json(
           {
             success: false,
@@ -543,8 +556,8 @@ export async function POST(
       }
 
       if (
-        source.status !==
-        "active"
+        scanResult.kind ===
+        "inactive"
       ) {
         return NextResponse.json(
           {
@@ -552,7 +565,7 @@ export async function POST(
             scanStatus:
               "failed",
             error:
-              `Only active sources can be scanned. Current status: ${source.status}.`,
+              `Only active sources can be scanned. Current status: ${scanResult.status}.`,
           },
           {
             status: 400,
@@ -561,10 +574,8 @@ export async function POST(
       }
 
       if (
-        source.lastScanAt &&
-        Date.now() -
-          source.lastScanAt.getTime() <
-          SCAN_COOLDOWN_MS
+        scanResult.kind ===
+        "cooldown"
       ) {
         return NextResponse.json(
           {
@@ -574,7 +585,7 @@ export async function POST(
             error:
               "This source was scanned recently. Please wait a few seconds before scanning again.",
             lastScanAt:
-              source.lastScanAt.toISOString(),
+              scanResult.lastScanAt.toISOString(),
           },
           {
             status: 409,
@@ -582,185 +593,20 @@ export async function POST(
         );
       }
 
-      // 2. Use the AI runtime, with mock prompts as a safe fallback.
-      let promptsToInsert =
-        buildMockPrompts(
-          source,
-        );
-
-      let scanProvider =
-        "mock";
-
-      try {
-        const aiResponse =
-          await generateWithAIRuntime({
-            messages: [
-              {
-                role:
-                  "system",
-                content:
-                  buildSourceScannerSystemPrompt(
-                    source.name,
-                    source.type,
-                  ),
-              },
-              {
-                role:
-                  "user",
-                content:
-                  buildSourceScannerUserPrompt(
-                    source.name,
-                    source.type,
-                    source.url,
-                  ),
-              },
-            ],
-            temperature:
-              0.6,
-          });
-
-        if (aiResponse.success) {
-          const parsed =
-            parseSourceScanJson(
-              aiResponse.content,
-            );
-
-          if (
-            parsed?.prompts &&
-            Array.isArray(
-              parsed.prompts,
-            )
-          ) {
-            const timestamp =
-              new Date();
-
-            const generatedPrompts =
-              parsed.prompts
-                .map(
-                  (prompt) => ({
-                    sourceId:
-                      source.id,
-                    title:
-                      normalizeText(
-                        prompt.title,
-                      ) ||
-                      `${source.name} prompt candidate`,
-                    prompt:
-                      normalizeText(
-                        prompt.prompt,
-                      ),
-                    category:
-                      normalizeText(
-                        prompt.category,
-                      ) ||
-                      "General",
-                    model:
-                      "General",
-                    qualityScore:
-                      Math.max(
-                        50,
-                        Math.min(
-                          100,
-                          Math.round(
-                            Number(
-                              prompt.qualityScore,
-                            ) ||
-                              75,
-                          ),
-                        ),
-                      ),
-                    sourceUrl:
-                      source.url,
-                    status:
-                      "pending",
-                    discoveredAt:
-                      timestamp,
-                  }),
-                )
-                .filter(
-                  (prompt) =>
-                    Boolean(
-                      prompt.prompt,
-                    ),
-                );
-
-            if (
-              generatedPrompts.length >
-              0
-            ) {
-              promptsToInsert =
-                generatedPrompts;
-
-              scanProvider =
-                aiResponse.provider;
-            }
-          }
-        }
-      } catch (error) {
-        console.error(
-          "AI scanning error, falling back to mock prompts:",
-          error,
-        );
-      }
-
-      // 3. Save the prompts and update the source timestamp atomically.
-      const scanCompletedAt =
-        new Date();
-
-      const updatedSource =
-        await prisma.$transaction(
-          async (
-            transaction,
-          ) => {
-            if (
-              promptsToInsert.length >
-              0
-            ) {
-              await transaction.discoveredPrompt.createMany({
-                data:
-                  promptsToInsert,
-              });
-            }
-
-            return transaction.source.update({
-              where: {
-                id: sourceId,
-              },
-              data: {
-                lastScanAt:
-                  scanCompletedAt,
-              },
-              include: {
-                _count: {
-                  select: {
-                    discoveredPrompts:
-                      true,
-                  },
-                },
-              },
-            });
-          },
-        );
-
-      const messageSuffix =
-        scanProvider === "mock"
-          ? "(mock generation fallback)"
-          : `via ${scanProvider} engine`;
-
       return NextResponse.json(
         {
           success: true,
           scanStatus:
             "completed",
           message:
-            `${promptsToInsert.length} discovered prompts were generated successfully ${messageSuffix}.`,
+            `${scanResult.createdCount} discovered prompts were generated successfully.`,
           createdCount:
-            promptsToInsert.length,
+            scanResult.createdCount,
           createdPrompts:
-            promptsToInsert,
+            scanResult.createdPrompts,
           item:
             formatSourceItem(
-              updatedSource,
+              scanResult.source,
             ),
         },
         {
@@ -769,6 +615,9 @@ export async function POST(
       );
     }
 
+    /*
+     * Normal Source creation.
+     */
     const name =
       normalizeText(
         body.name,
