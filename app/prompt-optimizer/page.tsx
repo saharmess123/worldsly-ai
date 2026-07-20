@@ -162,7 +162,7 @@ export default function PromptOptimizerPage() {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60-second timeout for AI models (Ollama/OpenAI)
 
     try {
       setIsOptimizing(true);
