@@ -5,6 +5,9 @@ import {
   NextResponse,
 } from "next/server";
 
+import {
+  internalServerError,
+} from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { generateWithAIRuntime } from "../../lib/ai/runtime";
 
@@ -48,29 +51,32 @@ type SourcePostBody =
   | CreateSourceBody
   | ScanSourceBody;
 
-type SourceWithCount = Prisma.SourceGetPayload<{
-  include: {
-    _count: {
-      select: {
-        discoveredPrompts: true;
+type SourceWithCount =
+  Prisma.SourceGetPayload<{
+    include: {
+      _count: {
+        select: {
+          discoveredPrompts: true;
+        };
       };
     };
-  };
-}>;
+  }>;
 
 async function requireAdmin(): Promise<boolean> {
-  const cookieStore = await cookies();
+  const cookieStore =
+    await cookies();
 
   const role =
-    cookieStore.get("wordsly_user_role")
-      ?.value || "admin";
+    cookieStore.get(
+      "wordsly_user_role",
+    )?.value || "admin";
 
   return role === "admin";
 }
 
 function normalizeText(
   value: unknown,
-  fallback = ""
+  fallback = "",
 ): string {
   if (typeof value !== "string") {
     return fallback;
@@ -81,11 +87,14 @@ function normalizeText(
 
 function normalizeNumber(
   value: unknown,
-  fallback = 0
+  fallback = 0,
 ): number {
-  const numberValue = Number(value);
+  const numberValue =
+    Number(value);
 
-  if (!Number.isFinite(numberValue)) {
+  if (
+    !Number.isFinite(numberValue)
+  ) {
     return fallback;
   }
 
@@ -93,29 +102,29 @@ function normalizeNumber(
     0,
     Math.min(
       100,
-      Math.round(numberValue)
-    )
+      Math.round(numberValue),
+    ),
   );
 }
 
 function isSourceStatus(
-  value: string
+  value: string,
 ): value is SourceStatus {
   return ALLOWED_SOURCE_STATUSES.includes(
-    value as SourceStatus
+    value as SourceStatus,
   );
 }
 
 function isScanFrequency(
-  value: string
+  value: string,
 ): value is ScanFrequency {
   return ALLOWED_SCAN_FREQUENCIES.includes(
-    value as ScanFrequency
+    value as ScanFrequency,
   );
 }
 
 function formatDate(
-  value: Date | null
+  value: Date | null,
 ): string | null {
   return value
     ? value.toISOString()
@@ -123,7 +132,7 @@ function formatDate(
 }
 
 function formatSourceItem(
-  item: SourceWithCount
+  item: SourceWithCount,
 ) {
   return {
     id: item.id,
@@ -166,22 +175,24 @@ function buildMockPrompts(
     type: string;
     url: string | null;
     credibilityScore: number;
-  }
+  },
 ) {
   const timestamp =
     new Date().toISOString();
 
-  const baseQuality = Math.max(
-    50,
-    Math.min(
-      95,
-      source.credibilityScore
-    )
-  );
+  const baseQuality =
+    Math.max(
+      50,
+      Math.min(
+        95,
+        source.credibilityScore,
+      ),
+    );
 
   return [
     {
-      sourceId: source.id,
+      sourceId:
+        source.id,
       title:
         `${source.name} — Structured Research Prompt`,
       prompt:
@@ -202,7 +213,8 @@ function buildMockPrompts(
         new Date(timestamp),
     },
     {
-      sourceId: source.id,
+      sourceId:
+        source.id,
       title:
         `${source.name} — Content Improvement Prompt`,
       prompt:
@@ -216,7 +228,7 @@ function buildMockPrompts(
       qualityScore:
         Math.max(
           50,
-          baseQuality - 5
+          baseQuality - 5,
         ),
       sourceUrl:
         source.url,
@@ -226,7 +238,8 @@ function buildMockPrompts(
         new Date(timestamp),
     },
     {
-      sourceId: source.id,
+      sourceId:
+        source.id,
       title:
         `${source.name} — Expert Summary Prompt`,
       prompt:
@@ -240,7 +253,7 @@ function buildMockPrompts(
       qualityScore:
         Math.max(
           50,
-          baseQuality - 10
+          baseQuality - 10,
         ),
       sourceUrl:
         source.url,
@@ -314,7 +327,7 @@ function parseSourceScanJson(text: string): ScannedResponseJson | null {
     }
     return parsed as ScannedResponseJson;
   } catch {
-    const match = text.match(/\\{[\\s\\S]*\\}/);
+    const match = text.match(/\{[\s\S]*\}/);
     if (!match) {
       return null;
     }
@@ -345,7 +358,7 @@ export async function GET() {
         },
         {
           status: 403,
-        }
+        },
       );
     }
 
@@ -354,39 +367,45 @@ export async function GET() {
         include: {
           _count: {
             select: {
-              discoveredPrompts: true,
+              discoveredPrompts:
+                true,
             },
           },
         },
         orderBy: {
-          createdAt: "desc",
+          createdAt:
+            "desc",
         },
       });
 
     const activeCount =
       items.filter(
         (item) =>
-          item.status === "active"
+          item.status ===
+          "active",
       ).length;
 
     const pausedCount =
       items.filter(
         (item) =>
-          item.status === "paused"
+          item.status ===
+          "paused",
       ).length;
 
     const archivedCount =
       items.filter(
         (item) =>
-          item.status === "archived"
+          item.status ===
+          "archived",
       ).length;
 
     const totalDiscoveredPrompts =
       items.reduce(
         (total, item) =>
           total +
-          item._count.discoveredPrompts,
-        0
+          item._count
+            .discoveredPrompts,
+        0,
       );
 
     const averageCredibility =
@@ -397,14 +416,17 @@ export async function GET() {
               (sum, item) =>
                 sum +
                 item.credibilityScore,
-              0
-            ) / items.length
+              0,
+            ) /
+              items.length,
           );
 
     return NextResponse.json({
       success: true,
       items:
-        items.map(formatSourceItem),
+        items.map(
+          formatSourceItem,
+        ),
       count:
         items.length,
       activeCount,
@@ -420,26 +442,17 @@ export async function GET() {
   } catch (error) {
     console.error(
       "GET /api/sources error:",
-      error
+      error,
     );
 
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Something went wrong while loading sources.",
-        storageMode:
-          "sqlite_prisma",
-      },
-      {
-        status: 500,
-      }
+    return internalServerError(
+      "Something went wrong while loading sources.",
     );
   }
 }
 
 export async function POST(
-  request: NextRequest
+  request: NextRequest,
 ) {
   try {
     const isAdmin =
@@ -454,7 +467,7 @@ export async function POST(
         },
         {
           status: 403,
-        }
+        },
       );
     }
 
@@ -474,171 +487,320 @@ export async function POST(
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
-    if (body.action === "scan") {
-      const sourceId = normalizeText(body.sourceId);
+    /*
+     * MODULE 8:
+     * Scan an existing source and create discovered prompts
+     * linked to the source.
+     */
+    if (
+      body.action === "scan"
+    ) {
+      const sourceId =
+        normalizeText(
+          body.sourceId,
+        );
 
       if (!sourceId) {
         return NextResponse.json(
           {
             success: false,
-            scanStatus: "failed",
-            error: "Source ID is required for scanning.",
+            scanStatus:
+              "failed",
+            error:
+              "Source ID is required for scanning.",
           },
-          { status: 400 }
+          {
+            status: 400,
+          },
         );
       }
 
-      // 1. Fetch source details outside transaction
-      const source = await prisma.source.findUnique({
-        where: { id: sourceId },
-      });
+      // 1. Fetch the source before calling the AI runtime.
+      const source =
+        await prisma.source.findUnique({
+          where: {
+            id: sourceId,
+          },
+        });
 
       if (!source) {
         return NextResponse.json(
           {
             success: false,
-            scanStatus: "failed",
-            error: "Source not found.",
+            scanStatus:
+              "failed",
+            error:
+              "Source not found.",
           },
-          { status: 404 }
+          {
+            status: 404,
+          },
         );
       }
 
-      if (source.status !== "active") {
+      if (
+        source.status !==
+        "active"
+      ) {
         return NextResponse.json(
           {
             success: false,
-            scanStatus: "failed",
-            error: `Only active sources can be scanned. Current status: ${source.status}.`,
+            scanStatus:
+              "failed",
+            error:
+              `Only active sources can be scanned. Current status: ${source.status}.`,
           },
-          { status: 400 }
+          {
+            status: 400,
+          },
         );
       }
 
       if (
         source.lastScanAt &&
-        Date.now() - source.lastScanAt.getTime() < SCAN_COOLDOWN_MS
+        Date.now() -
+          source.lastScanAt.getTime() <
+          SCAN_COOLDOWN_MS
       ) {
         return NextResponse.json(
           {
             success: false,
-            scanStatus: "failed",
-            error: "This source was scanned recently. Please wait a few seconds before scanning again.",
-            lastScanAt: source.lastScanAt.toISOString(),
+            scanStatus:
+              "failed",
+            error:
+              "This source was scanned recently. Please wait a few seconds before scanning again.",
+            lastScanAt:
+              source.lastScanAt.toISOString(),
           },
-          { status: 409 }
+          {
+            status: 409,
+          },
         );
       }
 
-      // 2. Perform the LLM scan using standard prompt templates
-      let promptsToInsert = buildMockPrompts(source);
-      let scanStatus = "mock";
+      // 2. Use the AI runtime, with mock prompts as a safe fallback.
+      let promptsToInsert =
+        buildMockPrompts(
+          source,
+        );
+
+      let scanProvider =
+        "mock";
 
       try {
-        const aiResponse = await generateWithAIRuntime({
-          messages: [
-            {
-              role: "system",
-              content: buildSourceScannerSystemPrompt(source.name, source.type),
-            },
-            {
-              role: "user",
-              content: buildSourceScannerUserPrompt(source.name, source.type, source.url),
-            },
-          ],
-          temperature: 0.6,
-        });
+        const aiResponse =
+          await generateWithAIRuntime({
+            messages: [
+              {
+                role:
+                  "system",
+                content:
+                  buildSourceScannerSystemPrompt(
+                    source.name,
+                    source.type,
+                  ),
+              },
+              {
+                role:
+                  "user",
+                content:
+                  buildSourceScannerUserPrompt(
+                    source.name,
+                    source.type,
+                    source.url,
+                  ),
+              },
+            ],
+            temperature:
+              0.6,
+          });
 
         if (aiResponse.success) {
-          const parsed = parseSourceScanJson(aiResponse.content);
-          if (parsed && parsed.prompts && Array.isArray(parsed.prompts) && parsed.prompts.length > 0) {
-            const timestamp = new Date();
-            promptsToInsert = parsed.prompts.map((p) => ({
-              sourceId: source.id,
-              title: normalizeText(p.title) || `${source.name} prompt candidate`,
-              prompt: normalizeText(p.prompt),
-              category: normalizeText(p.category) || "General",
-              model: "General",
-              qualityScore: Math.max(50, Math.min(100, Math.round(Number(p.qualityScore) || 75))),
-              sourceUrl: source.url,
-              status: "pending",
-              discoveredAt: timestamp,
-            })).filter(p => p.prompt); // make sure prompt body is present
-            scanStatus = aiResponse.provider;
+          const parsed =
+            parseSourceScanJson(
+              aiResponse.content,
+            );
+
+          if (
+            parsed?.prompts &&
+            Array.isArray(
+              parsed.prompts,
+            )
+          ) {
+            const timestamp =
+              new Date();
+
+            const generatedPrompts =
+              parsed.prompts
+                .map(
+                  (prompt) => ({
+                    sourceId:
+                      source.id,
+                    title:
+                      normalizeText(
+                        prompt.title,
+                      ) ||
+                      `${source.name} prompt candidate`,
+                    prompt:
+                      normalizeText(
+                        prompt.prompt,
+                      ),
+                    category:
+                      normalizeText(
+                        prompt.category,
+                      ) ||
+                      "General",
+                    model:
+                      "General",
+                    qualityScore:
+                      Math.max(
+                        50,
+                        Math.min(
+                          100,
+                          Math.round(
+                            Number(
+                              prompt.qualityScore,
+                            ) ||
+                              75,
+                          ),
+                        ),
+                      ),
+                    sourceUrl:
+                      source.url,
+                    status:
+                      "pending",
+                    discoveredAt:
+                      timestamp,
+                  }),
+                )
+                .filter(
+                  (prompt) =>
+                    Boolean(
+                      prompt.prompt,
+                    ),
+                );
+
+            if (
+              generatedPrompts.length >
+              0
+            ) {
+              promptsToInsert =
+                generatedPrompts;
+
+              scanProvider =
+                aiResponse.provider;
+            }
           }
         }
       } catch (error) {
-        console.error("AI scanning error, falling back to mock prompts:", error);
+        console.error(
+          "AI scanning error, falling back to mock prompts:",
+          error,
+        );
       }
 
-      // 3. Insert discovered prompts and update the source timestamp inside a transaction
-      const scanCompletedAt = new Date();
-      const updatedSource = await prisma.$transaction(async (transaction) => {
-        if (promptsToInsert.length > 0) {
-          await transaction.discoveredPrompt.createMany({
-            data: promptsToInsert,
-          });
-        }
-        return await transaction.source.update({
-          where: { id: sourceId },
-          data: { lastScanAt: scanCompletedAt },
-          include: {
-            _count: {
-              select: { discoveredPrompts: true },
-            },
-          },
-        });
-      });
+      // 3. Save the prompts and update the source timestamp atomically.
+      const scanCompletedAt =
+        new Date();
 
-      const messageSuffix = scanStatus === "mock" 
-        ? "(mock generation fallback)" 
-        : `via ${scanStatus} engine`;
+      const updatedSource =
+        await prisma.$transaction(
+          async (
+            transaction,
+          ) => {
+            if (
+              promptsToInsert.length >
+              0
+            ) {
+              await transaction.discoveredPrompt.createMany({
+                data:
+                  promptsToInsert,
+              });
+            }
+
+            return transaction.source.update({
+              where: {
+                id: sourceId,
+              },
+              data: {
+                lastScanAt:
+                  scanCompletedAt,
+              },
+              include: {
+                _count: {
+                  select: {
+                    discoveredPrompts:
+                      true,
+                  },
+                },
+              },
+            });
+          },
+        );
+
+      const messageSuffix =
+        scanProvider === "mock"
+          ? "(mock generation fallback)"
+          : `via ${scanProvider} engine`;
 
       return NextResponse.json(
         {
           success: true,
-          scanStatus: "completed",
-          message: `${promptsToInsert.length} discovered prompts were generated successfully ${messageSuffix}.`,
-          createdCount: promptsToInsert.length,
-          createdPrompts: promptsToInsert,
-          item: formatSourceItem(updatedSource),
+          scanStatus:
+            "completed",
+          message:
+            `${promptsToInsert.length} discovered prompts were generated successfully ${messageSuffix}.`,
+          createdCount:
+            promptsToInsert.length,
+          createdPrompts:
+            promptsToInsert,
+          item:
+            formatSourceItem(
+              updatedSource,
+            ),
         },
-        { status: 201 }
+        {
+          status: 201,
+        },
       );
     }
 
     const name =
-      normalizeText(body.name);
+      normalizeText(
+        body.name,
+      );
 
     const type =
       normalizeText(
         body.type,
-        "Website"
+        "Website",
       );
 
     const url =
-      normalizeText(body.url);
+      normalizeText(
+        body.url,
+      );
 
     const status =
       normalizeText(
         body.status,
-        "active"
+        "active",
       );
 
     const scanFrequency =
       normalizeText(
         body.scanFrequency,
-        "manual"
+        "manual",
       );
 
     const credibilityScore =
       normalizeNumber(
         body.credibilityScore,
-        70
+        70,
       );
 
     if (!name) {
@@ -652,11 +814,13 @@ export async function POST(
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
-    if (!isSourceStatus(status)) {
+    if (
+      !isSourceStatus(status)
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -665,13 +829,13 @@ export async function POST(
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
     if (
       !isScanFrequency(
-        scanFrequency
+        scanFrequency,
       )
     ) {
       return NextResponse.json(
@@ -682,7 +846,7 @@ export async function POST(
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -711,7 +875,9 @@ export async function POST(
       {
         success: true,
         item:
-          formatSourceItem(item),
+          formatSourceItem(
+            item,
+          ),
         storageMode:
           "sqlite_prisma",
         message:
@@ -719,33 +885,22 @@ export async function POST(
       },
       {
         status: 201,
-      }
+      },
     );
   } catch (error) {
     console.error(
       "POST /api/sources error:",
-      error
+      error,
     );
 
-    return NextResponse.json(
-      {
-        success: false,
-        scanStatus:
-          "failed",
-        error:
-          "Something went wrong while processing the source request.",
-        storageMode:
-          "sqlite_prisma",
-      },
-      {
-        status: 500,
-      }
+    return internalServerError(
+      "Something went wrong while processing the source request.",
     );
   }
 }
 
 export async function DELETE(
-  request: NextRequest
+  request: NextRequest,
 ) {
   try {
     const isAdmin =
@@ -760,7 +915,7 @@ export async function DELETE(
         },
         {
           status: 403,
-        }
+        },
       );
     }
 
@@ -793,7 +948,7 @@ export async function DELETE(
           },
           {
             status: 404,
-          }
+          },
         );
       }
 
@@ -831,20 +986,11 @@ export async function DELETE(
   } catch (error) {
     console.error(
       "DELETE /api/sources error:",
-      error
+      error,
     );
 
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Something went wrong while deleting sources.",
-        storageMode:
-          "sqlite_prisma",
-      },
-      {
-        status: 500,
-      }
+    return internalServerError(
+      "Something went wrong while deleting sources.",
     );
   }
 }
