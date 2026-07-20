@@ -1,6 +1,10 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import {
+  apiError,
+  forbidden,
+} from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 
 type OptimizationItem = {
@@ -150,16 +154,7 @@ export async function GET() {
       await requireAdmin();
 
     if (!isAdmin) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Access denied. Admin privileges required.",
-        },
-        {
-          status: 403,
-        }
-      );
+      return forbidden();
     }
 
     const [
@@ -706,16 +701,15 @@ export async function GET() {
       error
     );
 
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Something went wrong while loading pipeline analytics.",
-        storageMode:
-          "sqlite_prisma",
-      },
+    return apiError(
+      "Something went wrong while loading pipeline analytics.",
       {
         status: 500,
+        code: "ANALYTICS_LOAD_FAILED",
+        extra: {
+          storageMode:
+            "sqlite_prisma",
+        },
       }
     );
   }

@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  apiError,
+  internalServerError,
+} from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 
 type HistoryPostBody = {
@@ -91,13 +95,11 @@ export async function GET() {
   } catch (error) {
     console.error("History GET error:", error);
 
-    return NextResponse.json(
+    return internalServerError(
+      "Something went wrong while loading history.",
       {
-        success: false,
-        error: "Something went wrong while loading history.",
         storageMode: "sqlite_prisma",
-      },
-      { status: 500 }
+      }
     );
   }
 }
@@ -109,28 +111,28 @@ export async function POST(request: Request) {
     try {
       body = (await request.json()) as HistoryPostBody;
     } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid JSON body.",
+      return apiError("Invalid JSON body.", {
+        status: 400,
+        code: "INVALID_JSON_BODY",
+        extra: {
           storageMode: "sqlite_prisma",
         },
-        { status: 400 }
-      );
+      });
     }
 
     const originalPrompt = normalizeText(body.originalPrompt);
-    const improvedPrompt = normalizeText(body.output || body.improvedPrompt);
+    const improvedPrompt = normalizeText(
+      body.output || body.improvedPrompt
+    );
 
     if (!improvedPrompt) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Output is required.",
+      return apiError("Output is required.", {
+        status: 400,
+        code: "OUTPUT_REQUIRED",
+        extra: {
           storageMode: "sqlite_prisma",
         },
-        { status: 400 }
-      );
+      });
     }
 
     const item = await prisma.optimization.create({
@@ -138,13 +140,22 @@ export async function POST(request: Request) {
         originalPrompt,
         improvedPrompt,
         category: normalizeText(body.category, "General"),
-        model: normalizeText(body.model, "GPT-4.1 / GPT-5 style"),
+        model: normalizeText(
+          body.model,
+          "GPT-4.1 / GPT-5 style"
+        ),
         goal: normalizeText(body.goal, "More structured"),
         depth: normalizeText(body.depth, "Balanced"),
-        outputFormat: normalizeText(body.outputFormat, "Detailed explanation"),
+        outputFormat: normalizeText(
+          body.outputFormat,
+          "Detailed explanation"
+        ),
         originalScore: normalizeNumber(body.originalScore),
         improvedScore: normalizeNumber(body.improvedScore),
-        engineStatus: normalizeText(body.engineStatus, "mock_api"),
+        engineStatus: normalizeText(
+          body.engineStatus,
+          "mock_api"
+        ),
       },
     });
 
@@ -152,18 +163,17 @@ export async function POST(request: Request) {
       success: true,
       item: formatHistoryItem(item),
       storageMode: "sqlite_prisma",
-      message: "Optimization saved successfully to SQLite history.",
+      message:
+        "Optimization saved successfully to SQLite history.",
     });
   } catch (error) {
     console.error("History POST error:", error);
 
-    return NextResponse.json(
+    return internalServerError(
+      "Something went wrong while saving history.",
       {
-        success: false,
-        error: "Something went wrong while saving history.",
         storageMode: "sqlite_prisma",
-      },
-      { status: 500 }
+      }
     );
   }
 }
@@ -188,15 +198,14 @@ export async function DELETE(request: Request) {
           storageMode: "sqlite_prisma",
         });
       } catch {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "History record not found.",
+        return apiError("History record not found.", {
+          status: 404,
+          code: "HISTORY_RECORD_NOT_FOUND",
+          extra: {
             deletedId: id,
             storageMode: "sqlite_prisma",
           },
-          { status: 404 }
-        );
+        });
       }
     }
 
@@ -212,13 +221,11 @@ export async function DELETE(request: Request) {
   } catch (error) {
     console.error("History DELETE error:", error);
 
-    return NextResponse.json(
+    return internalServerError(
+      "Something went wrong while deleting history.",
       {
-        success: false,
-        error: "Something went wrong while deleting history.",
         storageMode: "sqlite_prisma",
-      },
-      { status: 500 }
+      }
     );
   }
 }

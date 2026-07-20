@@ -1,25 +1,63 @@
 import { NextResponse } from "next/server";
+
+import {
+  apiError,
+  badRequest,
+  unauthorized,
+} from "../../../lib/api-response";
+import {
+  hashPassword,
+  signToken,
+  verifyPassword,
+} from "../../../lib/auth";
 import { prisma } from "../../../lib/prisma";
-import { verifyPassword, signToken, hashPassword } from "../../../lib/auth";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { email, password } = body;
+    let body: unknown;
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { success: false, error: "Email and password are required." },
-        { status: 400 }
+    try {
+      body = await request.json();
+    } catch {
+      return badRequest("Invalid JSON body.");
+    }
+
+    if (
+      typeof body !== "object" ||
+      body === null
+    ) {
+      return badRequest("Invalid request body.");
+    }
+
+    const {
+      email,
+      password,
+    } = body as {
+      email?: unknown;
+      password?: unknown;
+    };
+
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      !password
+    ) {
+      return badRequest(
+        "Email and password are required."
       );
     }
 
-    const emailTrimmed = email.trim().toLowerCase();
+    const emailTrimmed =
+      email.trim().toLowerCase();
 
-    // Auto-seed admin user if user count is 0
-    const userCount = await prisma.user.count();
+    const userCount =
+      await prisma.user.count();
+
     if (userCount === 0) {
-      const seededHash = hashPassword("adminadmin");
+      const seededHash =
+        hashPassword("adminadmin");
+
       await prisma.user.create({
         data: {
           name: "Admin User",
@@ -33,29 +71,34 @@ export async function POST(request: Request) {
       });
     }
 
-    // Query user
-    const user = await prisma.user.findUnique({
-      where: { email: emailTrimmed },
-    });
+    const user =
+      await prisma.user.findUnique({
+        where: {
+          email: emailTrimmed,
+        },
+      });
 
-    if (!user || !user.passwordHash) {
-      return NextResponse.json(
-        { success: false, error: "Invalid email or password." },
-        { status: 401 }
+    if (
+      !user ||
+      !user.passwordHash
+    ) {
+      return unauthorized(
+        "Invalid email or password."
       );
     }
 
-    // Verify password
-    const isPasswordValid = verifyPassword(password, user.passwordHash);
+    const isPasswordValid =
+      verifyPassword(
+        password,
+        user.passwordHash
+      );
 
     if (!isPasswordValid) {
-      return NextResponse.json(
-        { success: false, error: "Invalid email or password." },
-        { status: 401 }
+      return unauthorized(
+        "Invalid email or password."
       );
     }
 
-    // Create session token
     const token = signToken({
       userId: user.id,
       email: user.email,
@@ -63,41 +106,59 @@ export async function POST(request: Request) {
       name: user.name,
     });
 
-    const response = NextResponse.json({
-      success: true,
-      message: "Logged in successfully.",
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
-    });
+    const response =
+      NextResponse.json({
+        success: true,
+        message:
+          "Logged in successfully.",
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      });
 
-    // Set HTTP-Only Cookie
-    response.cookies.set("wordsly_session", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24, // 24 hours
-    });
+    response.cookies.set(
+      "wordsly_session",
+      token,
+      {
+        httpOnly: true,
+        secure:
+          process.env.NODE_ENV ===
+          "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24,
+      }
+    );
 
-    // Legacy cookie compatibility for frontend navigation if needed
-    response.cookies.set("wordsly_user_role", user.role, {
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24,
-    });
+    response.cookies.set(
+      "wordsly_user_role",
+      user.role,
+      {
+        secure:
+          process.env.NODE_ENV ===
+          "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24,
+      }
+    );
 
     return response;
   } catch (error) {
-    console.error("Login error:", error);
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json(
-      { success: false, error: "Failed to log in: " + message },
-      { status: 500 }
+    console.error(
+      "Login error:",
+      error
+    );
+
+    return apiError(
+      "Failed to log in.",
+      {
+        status: 500,
+        code: "LOGIN_FAILED",
+      }
     );
   }
 }
