@@ -2,6 +2,7 @@ import {
   createAIProvider,
   getConfiguredAIProviderName,
 } from "./factory";
+import { recordAIRuntimeEvent } from "./monitoring";
 import type { AIProvider } from "./provider";
 import type {
   AIProviderName,
@@ -19,6 +20,11 @@ export interface AIRuntimeOptions {
   timeoutMs?: number;
   maxRetries?: number;
   retryDelayMs?: number;
+}
+
+interface ProviderExecutionResult {
+  response: AIResponse;
+  attemptCount: number;
 }
 
 function isAIProviderName(
@@ -167,7 +173,7 @@ async function executeProviderWithRetry(
   timeoutMs: number,
   maxRetries: number,
   retryDelayMs: number,
-): Promise<AIResponse> {
+): Promise<ProviderExecutionResult> {
   let lastResponse: AIResponse | null = null;
 
   for (
@@ -193,7 +199,10 @@ async function executeProviderWithRetry(
         response.success ||
         !shouldRetry(response)
       ) {
-        return response;
+        return {
+          response,
+          attemptCount: attempt + 1,
+        };
       }
     } catch (error) {
       lastResponse = createRuntimeErrorResponse(
@@ -209,18 +218,20 @@ async function executeProviderWithRetry(
     }
   }
 
-  return (
-    lastResponse ?? {
-      provider: provider.name,
-      model:
-        request.model?.trim() ||
-        `${provider.name}-default`,
-      content: "",
-      latencyMs: 0,
-      success: false,
-      error: `${provider.name} request failed.`,
-    }
-  );
+  return {
+    response:
+      lastResponse ?? {
+        provider: provider.name,
+        model:
+          request.model?.trim() ||
+          `${provider.name}-default`,
+        content: "",
+        latencyMs: 0,
+        success: false,
+        error: `${provider.name} request failed.`,
+      },
+    attemptCount: maxRetries + 1,
+  };
 }
 
 export async function generateWithAIRuntime(
@@ -260,7 +271,7 @@ export async function generateWithAIRuntime(
   const primaryProvider =
     createAIProvider(providerName);
 
-  const primaryResponse =
+  const primaryExecution =
     await executeProviderWithRetry(
       primaryProvider,
       request,
@@ -269,7 +280,22 @@ export async function generateWithAIRuntime(
       retryDelayMs,
     );
 
+  const primaryResponse =
+    primaryExecution.response;
+
   if (primaryResponse.success) {
+    await recordAIRuntimeEvent({
+      primaryProvider: providerName,
+      resolvedProvider: primaryResponse.provider,
+      fallbackProvider: fallbackProviderName,
+      model: primaryResponse.model,
+      success: true,
+      usedFallback: false,
+      attemptCount: primaryExecution.attemptCount,
+      latencyMs: primaryResponse.latencyMs,
+      error: primaryResponse.error,
+    });
+
     return primaryResponse;
   }
 
@@ -277,6 +303,18 @@ export async function generateWithAIRuntime(
     !fallbackProviderName ||
     fallbackProviderName === providerName
   ) {
+    await recordAIRuntimeEvent({
+      primaryProvider: providerName,
+      resolvedProvider: primaryResponse.provider,
+      fallbackProvider: fallbackProviderName,
+      model: primaryResponse.model,
+      success: false,
+      usedFallback: false,
+      attemptCount: primaryExecution.attemptCount,
+      latencyMs: primaryResponse.latencyMs,
+      error: primaryResponse.error,
+    });
+
     return primaryResponse;
   }
 
@@ -284,7 +322,7 @@ export async function generateWithAIRuntime(
     fallbackProviderName,
   );
 
-  const fallbackResponse =
+  const fallbackExecution =
     await executeProviderWithRetry(
       fallbackProvider,
       {
@@ -300,7 +338,31 @@ export async function generateWithAIRuntime(
       retryDelayMs,
     );
 
-  return fallbackResponse.success
-    ? fallbackResponse
-    : primaryResponse;
+  const fallbackResponse =
+    fallbackExecution.response;
+
+  const resolvedResponse =
+    fallbackResponse.success
+      ? fallbackResponse
+      : primaryResponse;
+
+  await recordAIRuntimeEvent({
+    primaryProvider: providerName,
+    resolvedProvider: resolvedResponse.provider,
+    fallbackProvider: fallbackProviderName,
+    model: resolvedResponse.model,
+    success: resolvedResponse.success,
+    usedFallback: true,
+    attemptCount:
+      primaryExecution.attemptCount +
+      fallbackExecution.attemptCount,
+    latencyMs:
+      primaryResponse.latencyMs +
+      fallbackResponse.latencyMs,
+    error:
+      resolvedResponse.error ??
+      fallbackResponse.error,
+  });
+
+  return resolvedResponse;
 }

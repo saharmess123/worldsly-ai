@@ -202,3 +202,24 @@ model ApiKey {
 
   @@index([userId])
 }
+
+model AIRuntimeEvent {
+  id               String   @id @default(cuid())
+  operation        String   @default("generate")
+  primaryProvider  String
+  resolvedProvider String
+  fallbackProvider String?
+  model            String
+  success          Boolean
+  usedFallback     Boolean  @default(false)
+  attemptCount     Int      @default(1)
+  latencyMs        Int
+  error            String?
+  createdAt        DateTime @default(now())
+
+  @@index([operation])
+  @@index([primaryProvider])
+  @@index([resolvedProvider])
+  @@index([success])
+  @@index([createdAt])
+}
