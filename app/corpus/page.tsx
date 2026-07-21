@@ -92,8 +92,20 @@ export default function CorpusPage() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch(`/api/corpus?archived=${showArchived}`);
+
+      const params = new URLSearchParams({
+        archived: String(showArchived),
+        search,
+        category,
+        model: selectedModel,
+        minQuality: String(minQuality),
+        sort: sortBy,
+        limit: "200",
+      });
+
+      const res = await fetch(`/api/corpus?${params.toString()}`);
       const data = await res.json();
+
       if (data.success) {
         setCorpusItems(data.items);
       } else {
@@ -107,8 +119,19 @@ export default function CorpusPage() {
   }
 
   useEffect(() => {
-    fetchCorpus(viewArchived);
-  }, [viewArchived]);
+    const timeoutId = window.setTimeout(() => {
+      fetchCorpus(viewArchived);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    viewArchived,
+    search,
+    category,
+    selectedModel,
+    minQuality,
+    sortBy,
+  ]);
 
   async function handleArchive(item: CorpusItem, archiveState: boolean) {
     const actionText = archiveState ? "archive" : "unarchive";
@@ -535,7 +558,7 @@ export default function CorpusPage() {
               <h3 className="text-sm font-black text-blue-500 mb-3">QUALITY TIERS</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="font-bold text-emerald-500">Tier A (≥90%):</span>
+                  <span className="font-bold text-emerald-500">Tier A (â‰¥90%):</span>
                   <span className="font-black">{stats.highQualityCount}</span>
                 </div>
                 <div className="flex justify-between">
@@ -601,7 +624,7 @@ export default function CorpusPage() {
                   : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-white/5 dark:text-slate-300"
               }`}
             >
-              📂 Active Prompts
+              ðŸ“‚ Active Prompts
             </button>
             <button
               onClick={() => setViewArchived(true)}
@@ -611,7 +634,7 @@ export default function CorpusPage() {
                   : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-white/5 dark:text-slate-300"
               }`}
             >
-              📥 Archived Prompts ({viewArchived ? corpusItems.length : "Browse"})
+              ðŸ“¥ Archived Prompts ({viewArchived ? corpusItems.length : "Browse"})
             </button>
           </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6 items-end">
@@ -833,7 +856,7 @@ export default function CorpusPage() {
                   </div>
                   <h2 className="text-3xl font-black">{detailItem.title}</h2>
                 </div>
-                <button onClick={() => setDetailItem(null)} className="text-2xl font-black hover:text-red-500">×</button>
+                <button onClick={() => setDetailItem(null)} className="text-2xl font-black hover:text-red-500">Ã—</button>
               </div>
 
               <div className="space-y-6">
@@ -954,7 +977,7 @@ export default function CorpusPage() {
             <div className="w-full max-w-3xl rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-950 overflow-y-auto max-h-[90vh]">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-black">Add Prompt to Curated Corpus</h2>
-                <button onClick={() => setShowCreateModal(false)} className="text-2xl font-black hover:text-red-500">×</button>
+                <button onClick={() => setShowCreateModal(false)} className="text-2xl font-black hover:text-red-500">Ã—</button>
               </div>
 
               <form onSubmit={(e) => handleCreate(e, false)} className="space-y-4 text-sm">
@@ -1123,7 +1146,7 @@ export default function CorpusPage() {
             <div className="w-full max-w-3xl rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-950 overflow-y-auto max-h-[90vh]">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-black">Edit Curated Prompt (v{editItem.metadata?.version || 1})</h2>
-                <button onClick={() => setEditItem(null)} className="text-2xl font-black hover:text-red-500">×</button>
+                <button onClick={() => setEditItem(null)} className="text-2xl font-black hover:text-red-500">Ã—</button>
               </div>
 
               <form onSubmit={handleUpdate} className="space-y-4 text-sm">

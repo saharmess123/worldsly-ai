@@ -6,77 +6,255 @@ import { verifyToken } from "../../lib/auth";
 export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
-    const token = cookieStore.get("wordsly_session")?.value || "";
+    const token =
+      cookieStore.get("wordsly_session")?.value || "";
     const session = verifyToken(token);
+
     if (!session || session.role !== "admin") {
       return NextResponse.json(
-        { success: false, error: "Access denied. Admin privileges required." },
-        { status: 403 }
+        {
+          success: false,
+          error:
+            "Access denied. Admin privileges required.",
+        },
+        { status: 403 },
       );
     }
 
     const url = new URL(request.url);
-    const showArchived = url.searchParams.get("archived") === "true";
+    const search =
+      url.searchParams.get("search")?.trim() || "";
+    const category =
+      url.searchParams.get("category")?.trim() || "";
+    const model =
+      url.searchParams.get("model")?.trim() || "";
+    const sort =
+      url.searchParams.get("sort")?.trim() ||
+      "newest";
 
-    const prompts = await prisma.corpusPrompt.findMany({
-      where: {
-        isArchived: showArchived,
+    const showArchived =
+      url.searchParams.get("archived") === "true";
+
+    const minQualityValue = Number(
+      url.searchParams.get("minQuality") || "0",
+    );
+
+    const pageValue = Number(
+      url.searchParams.get("page") || "1",
+    );
+
+    const limitValue = Number(
+      url.searchParams.get("limit") || "100",
+    );
+
+    const minQuality = Number.isFinite(
+      minQualityValue,
+    )
+      ? Math.min(
+          100,
+          Math.max(0, Math.round(minQualityValue)),
+        )
+      : 0;
+
+    const page =
+      Number.isInteger(pageValue) && pageValue > 0
+        ? pageValue
+        : 1;
+
+    const limit =
+      Number.isInteger(limitValue) && limitValue > 0
+        ? Math.min(limitValue, 200)
+        : 100;
+
+    const orderBy =
+      sort === "oldest"
+        ? { createdAt: "asc" as const }
+        : sort === "quality-desc"
+          ? { qualityScore: "desc" as const }
+          : sort === "quality-asc"
+            ? { qualityScore: "asc" as const }
+            : sort === "title-asc"
+              ? { title: "asc" as const }
+              : sort === "title-desc"
+                ? { title: "desc" as const }
+                : { createdAt: "desc" as const };
+
+    const where = {
+      isArchived: showArchived,
+      qualityScore: {
+        gte: minQuality,
       },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-    
-    const formatted = prompts.map((p) => {
-      let metadataObj = {};
+      ...(category && category !== "All"
+        ? {
+            category,
+          }
+        : {}),
+      ...(model && model !== "All"
+        ? {
+            model: {
+              contains: model,
+            },
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              {
+                title: {
+                  contains: search,
+                },
+              },
+              {
+                prompt: {
+                  contains: search,
+                },
+              },
+              {
+                improvedVersion: {
+                  contains: search,
+                },
+              },
+              {
+                category: {
+                  contains: search,
+                },
+              },
+              {
+                model: {
+                  contains: search,
+                },
+              },
+              {
+                patterns: {
+                  contains: search,
+                },
+              },
+              {
+                metadata: {
+                  contains: search,
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const [prompts, totalItems] =
+      await Promise.all([
+        prisma.corpusPrompt.findMany({
+          where,
+          orderBy,
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.corpusPrompt.count({
+          where,
+        }),
+      ]);
+
+    const formatted = prompts.map((prompt) => {
+      let metadataObj: Record<string, unknown> = {};
+
       try {
-        metadataObj = p.metadata ? JSON.parse(p.metadata) : {};
-      } catch (e) {
-        console.error("Failed to parse metadata JSON", e);
+        metadataObj = prompt.metadata
+          ? JSON.parse(prompt.metadata)
+          : {};
+      } catch (error) {
+        console.error(
+          "Failed to parse Corpus metadata JSON:",
+          error,
+        );
       }
 
       let patternsList: string[] = [];
-      if (p.patterns) {
+
+      if (prompt.patterns) {
         try {
-          patternsList = JSON.parse(p.patterns);
-          if (!Array.isArray(patternsList)) {
-            patternsList = p.patterns.split(",").map(s => s.trim()).filter(Boolean);
-          }
+          const parsedPatterns = JSON.parse(
+            prompt.patterns,
+          );
+
+          patternsList = Array.isArray(parsedPatterns)
+            ? parsedPatterns.filter(
+                (item): item is string =>
+                  typeof item === "string",
+              )
+            : prompt.patterns
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean);
         } catch {
-          patternsList = p.patterns.split(",").map(s => s.trim()).filter(Boolean);
+          patternsList = prompt.patterns
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean);
         }
       }
 
       return {
-        id: p.id,
-        title: p.title,
-        prompt: p.prompt,
-        improvedVersion: p.improvedVersion || "",
-        category: p.category,
-        model: p.model,
-        qualityScore: p.qualityScore,
+        id: prompt.id,
+        title: prompt.title,
+        prompt: prompt.prompt,
+        improvedVersion:
+          prompt.improvedVersion || "",
+        category: prompt.category,
+        model: prompt.model,
+        qualityScore: prompt.qualityScore,
         patterns: patternsList,
         metadata: metadataObj,
-        isArchived: p.isArchived,
-        version: p.version,
-        createdAt: p.createdAt,
+        isArchived: prompt.isArchived,
+        version: prompt.version,
+        createdAt:
+          prompt.createdAt.toISOString(),
+        updatedAt:
+          prompt.updatedAt.toISOString(),
       };
     });
 
     return NextResponse.json({
       success: true,
       items: formatted,
+      filters: {
+        search,
+        category: category || null,
+        model: model || null,
+        minQuality,
+        archived: showArchived,
+        sort,
+      },
+      pagination: {
+        page,
+        limit,
+        totalItems,
+        totalPages:
+          totalItems === 0
+            ? 0
+            : Math.ceil(totalItems / limit),
+        hasNextPage:
+          page * limit < totalItems,
+        hasPreviousPage:
+          page > 1,
+      },
     });
   } catch (error) {
     console.error("Corpus GET error:", error);
-    const message = error instanceof Error ? error.message : String(error);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : String(error);
+
     return NextResponse.json(
-      { success: false, error: "Failed to fetch corpus prompts: " + message },
-      { status: 500 }
+      {
+        success: false,
+        error:
+          "Failed to fetch corpus prompts: " +
+          message,
+      },
+      { status: 500 },
     );
   }
 }
-
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
