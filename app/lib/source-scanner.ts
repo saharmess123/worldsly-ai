@@ -15,9 +15,14 @@ type ScannedResponse = {
   prompts?: ScannedPrompt[];
 };
 
+export type SourceScanTrigger =
+  | "manual"
+  | "scheduled";
+
 type ScanSourceOptions = {
   enforceCooldown?: boolean;
   cooldownMs?: number;
+  trigger?: SourceScanTrigger;
 };
 
 export class SourceScanError extends Error {
@@ -141,6 +146,9 @@ export async function scanSourceById(
     options.cooldownMs ??
     DEFAULT_SCAN_COOLDOWN_MS;
 
+  const trigger =
+    options.trigger ?? "manual";
+
   const source =
     await prisma.source.findUnique({
       where: {
@@ -156,243 +164,336 @@ export async function scanSourceById(
     );
   }
 
-  if (source.status !== "active") {
-    throw new SourceScanError(
-      `Only active sources can be scanned. Current status: ${source.status}.`,
-      400,
-      "SOURCE_NOT_ACTIVE",
-    );
-  }
+  const startedAt = new Date();
+  const startedTime = Date.now();
 
-  if (!source.url) {
-    throw new SourceScanError(
-      "A valid source URL is required for real source scanning.",
-      400,
-      "SOURCE_URL_REQUIRED",
-    );
-  }
-
-  if (
-    enforceCooldown &&
-    source.lastScanAt &&
-    Date.now() -
-      source.lastScanAt.getTime() <
-      cooldownMs
-  ) {
-    throw new SourceScanError(
-      "This source was scanned recently. Please wait before scanning again.",
-      409,
-      "SOURCE_SCAN_COOLDOWN",
-    );
-  }
-
-  let retrievedContent;
+  const scanEvent =
+    await prisma.sourceScanEvent.create({
+      data: {
+        sourceId: source.id,
+        trigger,
+        status: "running",
+        startedAt,
+      },
+    });
 
   try {
-    retrievedContent =
-      await retrieveSourceContent(
-        source.url,
+    if (source.status !== "active") {
+      throw new SourceScanError(
+        `Only active sources can be scanned. Current status: ${source.status}.`,
+        400,
+        "SOURCE_NOT_ACTIVE",
       );
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "The source content could not be retrieved.";
+    }
 
-    throw new SourceScanError(
-      `Source retrieval failed: ${message}`,
-      422,
-      "SOURCE_RETRIEVAL_FAILED",
-    );
-  }
+    if (!source.url) {
+      throw new SourceScanError(
+        "A valid source URL is required for real source scanning.",
+        400,
+        "SOURCE_URL_REQUIRED",
+      );
+    }
 
-  const aiResponse =
-    await generateWithAIRuntime({
-      messages: [
-        {
-          role: "system",
-          content:
-            buildSystemPrompt(
-              source.name,
-              source.type,
+    if (
+      enforceCooldown &&
+      source.lastScanAt &&
+      Date.now() -
+        source.lastScanAt.getTime() <
+        cooldownMs
+    ) {
+      throw new SourceScanError(
+        "This source was scanned recently. Please wait before scanning again.",
+        409,
+        "SOURCE_SCAN_COOLDOWN",
+      );
+    }
+
+    let retrievedContent;
+
+    try {
+      retrievedContent =
+        await retrieveSourceContent(
+          source.url,
+        );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The source content could not be retrieved.";
+
+      throw new SourceScanError(
+        `Source retrieval failed: ${message}`,
+        422,
+        "SOURCE_RETRIEVAL_FAILED",
+      );
+    }
+
+    const aiResponse =
+      await generateWithAIRuntime({
+        messages: [
+          {
+            role: "system",
+            content:
+              buildSystemPrompt(
+                source.name,
+                source.type,
+              ),
+          },
+          {
+            role: "user",
+            content:
+              buildUserPrompt(
+                source.name,
+                source.type,
+                retrievedContent.finalUrl,
+                retrievedContent.text,
+              ),
+          },
+        ],
+        temperature: 0.3,
+      });
+
+    if (!aiResponse.success) {
+      throw new SourceScanError(
+        aiResponse.error ||
+          "The AI runtime could not analyze the retrieved source.",
+        502,
+        "SOURCE_AI_FAILED",
+      );
+    }
+
+    const parsed =
+      parseSourceScanJson(
+        aiResponse.content,
+      );
+
+    if (
+      !parsed?.prompts ||
+      !Array.isArray(parsed.prompts)
+    ) {
+      throw new SourceScanError(
+        "The AI runtime returned an invalid source-analysis response.",
+        502,
+        "SOURCE_AI_INVALID_RESPONSE",
+      );
+    }
+
+    const discoveredAt =
+      new Date();
+
+    const generatedPrompts =
+      parsed.prompts
+        .slice(0, 3)
+        .map((prompt) => ({
+          sourceId: source.id,
+          title:
+            normalizeText(
+              prompt.title,
+            ) ||
+            `${source.name} prompt candidate`,
+          prompt:
+            normalizeText(
+              prompt.prompt,
             ),
-        },
-        {
-          role: "user",
-          content:
-            buildUserPrompt(
-              source.name,
-              source.type,
-              retrievedContent.finalUrl,
-              retrievedContent.text,
-            ),
-        },
-      ],
-      temperature: 0.3,
-    });
-
-  if (!aiResponse.success) {
-    throw new SourceScanError(
-      aiResponse.error ||
-        "The AI runtime could not analyze the retrieved source.",
-      502,
-      "SOURCE_AI_FAILED",
-    );
-  }
-
-  const parsed =
-    parseSourceScanJson(
-      aiResponse.content,
-    );
-
-  if (
-    !parsed?.prompts ||
-    !Array.isArray(parsed.prompts)
-  ) {
-    throw new SourceScanError(
-      "The AI runtime returned an invalid source-analysis response.",
-      502,
-      "SOURCE_AI_INVALID_RESPONSE",
-    );
-  }
-
-  const discoveredAt =
-    new Date();
-
-  const generatedPrompts =
-    parsed.prompts
-      .slice(0, 3)
-      .map((prompt) => ({
-        sourceId: source.id,
-        title:
-          normalizeText(
-            prompt.title,
-          ) ||
-          `${source.name} prompt candidate`,
-        prompt:
-          normalizeText(
-            prompt.prompt,
-          ),
-        category:
-          normalizeText(
-            prompt.category,
-          ) || "General",
-        model: "General",
-        qualityScore:
-          Math.max(
-            50,
-            Math.min(
-              100,
-              Math.round(
-                Number(
-                  prompt.qualityScore,
-                ) || 75,
+          category:
+            normalizeText(
+              prompt.category,
+            ) || "General",
+          model: "General",
+          qualityScore:
+            Math.max(
+              50,
+              Math.min(
+                100,
+                Math.round(
+                  Number(
+                    prompt.qualityScore,
+                  ) || 75,
+                ),
               ),
             ),
-          ),
-        sourceUrl:
-          retrievedContent.finalUrl,
-        status: "pending",
-        discoveredAt,
-      }))
-      .filter((prompt) =>
-        Boolean(prompt.prompt),
+          sourceUrl:
+            retrievedContent.finalUrl,
+          status: "pending",
+          discoveredAt,
+        }))
+        .filter((prompt) =>
+          Boolean(prompt.prompt),
+        );
+
+    if (
+      generatedPrompts.length === 0
+    ) {
+      throw new SourceScanError(
+        "No usable prompts were extracted from the retrieved source.",
+        422,
+        "SOURCE_NO_PROMPTS",
+      );
+    }
+
+    const existingPrompts =
+      await prisma.discoveredPrompt.findMany({
+        where: {
+          sourceId: source.id,
+          prompt: {
+            in: generatedPrompts.map(
+              (prompt) => prompt.prompt,
+            ),
+          },
+        },
+        select: {
+          prompt: true,
+        },
+      });
+
+    const existingPromptText =
+      new Set(
+        existingPrompts.map(
+          (item) => item.prompt,
+        ),
       );
 
-  if (
-    generatedPrompts.length === 0
-  ) {
-    throw new SourceScanError(
-      "No usable prompts were extracted from the retrieved source.",
-      422,
-      "SOURCE_NO_PROMPTS",
-    );
-  }
-
-  const existingPrompts =
-    await prisma.discoveredPrompt.findMany({
-      where: {
-        sourceId: source.id,
-        prompt: {
-          in: generatedPrompts.map(
-            (prompt) => prompt.prompt,
+    const promptsToInsert =
+      generatedPrompts.filter(
+        (prompt) =>
+          !existingPromptText.has(
+            prompt.prompt,
           ),
-        },
-      },
-      select: {
-        prompt: true,
-      },
-    });
+      );
 
-  const existingPromptText =
-    new Set(
-      existingPrompts.map(
-        (item) => item.prompt,
-      ),
-    );
+    const scanCompletedAt =
+      new Date();
 
-  const promptsToInsert =
-    generatedPrompts.filter(
-      (prompt) =>
-        !existingPromptText.has(
-          prompt.prompt,
-        ),
-    );
+    const durationMs =
+      Math.max(
+        0,
+        Date.now() - startedTime,
+      );
 
-  const scanCompletedAt =
-    new Date();
+    const updatedSource =
+      await prisma.$transaction(
+        async (transaction) => {
+          if (
+            promptsToInsert.length > 0
+          ) {
+            await transaction.discoveredPrompt.createMany({
+              data: promptsToInsert,
+            });
+          }
 
-  const updatedSource =
-    await prisma.$transaction(
-      async (transaction) => {
-        if (
-          promptsToInsert.length > 0
-        ) {
-          await transaction.discoveredPrompt.createMany({
-            data: promptsToInsert,
-          });
-        }
-
-        return transaction.source.update({
-          where: {
-            id: source.id,
-          },
-          data: {
-            lastScanAt:
-              scanCompletedAt,
-          },
-          include: {
-            _count: {
-              select: {
-                discoveredPrompts:
-                  true,
+          const updated =
+            await transaction.source.update({
+              where: {
+                id: source.id,
               },
-            },
-          },
-        });
-      },
-    );
+              data: {
+                lastScanAt:
+                  scanCompletedAt,
+              },
+              include: {
+                _count: {
+                  select: {
+                    discoveredPrompts:
+                      true,
+                  },
+                },
+              },
+            });
 
-  return {
-    sourceId: source.id,
-    sourceName: source.name,
-    provider:
-      aiResponse.provider,
-    createdCount:
-      promptsToInsert.length,
-    generatedCount:
-      generatedPrompts.length,
-    skippedDuplicateCount:
-      generatedPrompts.length -
-      promptsToInsert.length,
-    createdPrompts:
-      promptsToInsert,
-    finalUrl:
-      retrievedContent.finalUrl,
-    retrievedCharacterCount:
-      retrievedContent.characterCount,
-    scannedAt:
-      scanCompletedAt.toISOString(),
-    updatedSource,
-  };
+          await transaction.sourceScanEvent.update({
+            where: {
+              id: scanEvent.id,
+            },
+            data: {
+              status: "completed",
+              provider:
+                aiResponse.provider,
+              createdCount:
+                promptsToInsert.length,
+              generatedCount:
+                generatedPrompts.length,
+              skippedDuplicateCount:
+                generatedPrompts.length -
+                promptsToInsert.length,
+              retrievedCharacterCount:
+                retrievedContent.characterCount,
+              durationMs,
+              completedAt:
+                scanCompletedAt,
+            },
+          });
+
+          return updated;
+        },
+      );
+
+    return {
+      scanEventId:
+        scanEvent.id,
+      sourceId:
+        source.id,
+      sourceName:
+        source.name,
+      trigger,
+      provider:
+        aiResponse.provider,
+      createdCount:
+        promptsToInsert.length,
+      generatedCount:
+        generatedPrompts.length,
+      skippedDuplicateCount:
+        generatedPrompts.length -
+        promptsToInsert.length,
+      createdPrompts:
+        promptsToInsert,
+      finalUrl:
+        retrievedContent.finalUrl,
+      retrievedCharacterCount:
+        retrievedContent.characterCount,
+      durationMs,
+      scannedAt:
+        scanCompletedAt.toISOString(),
+      updatedSource,
+    };
+  } catch (error) {
+    const scanError =
+      error instanceof SourceScanError
+        ? error
+        : new SourceScanError(
+            error instanceof Error
+              ? error.message
+              : "Unexpected source scan error.",
+            500,
+            "SOURCE_SCAN_UNEXPECTED_ERROR",
+          );
+
+    try {
+      await prisma.sourceScanEvent.update({
+        where: {
+          id: scanEvent.id,
+        },
+        data: {
+          status: "failed",
+          durationMs:
+            Math.max(
+              0,
+              Date.now() - startedTime,
+            ),
+          errorCode:
+            scanError.code,
+          errorMessage:
+            scanError.message,
+          completedAt:
+            new Date(),
+        },
+      });
+    } catch (historyError) {
+      console.error(
+        "Failed to update source scan history:",
+        historyError,
+      );
+    }
+
+    throw scanError;
+  }
 }

@@ -161,6 +161,7 @@ export async function GET(
             source.id,
             {
               enforceCooldown: false,
+              trigger: "scheduled",
             },
           );
 

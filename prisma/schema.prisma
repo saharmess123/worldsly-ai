@@ -99,11 +99,36 @@ model Source {
   updatedAt        DateTime  @updatedAt
 
   discoveredPrompts DiscoveredPrompt[]
+  scanEvents        SourceScanEvent[]
 
   @@index([type])
   @@index([status])
 }
 
+
+model SourceScanEvent {
+  id                      String   @id @default(cuid())
+  sourceId                String
+  trigger                 String   @default("manual")
+  status                  String
+  provider                String?
+  createdCount            Int      @default(0)
+  generatedCount          Int      @default(0)
+  skippedDuplicateCount   Int      @default(0)
+  retrievedCharacterCount Int      @default(0)
+  durationMs              Int      @default(0)
+  errorCode               String?
+  errorMessage            String?
+  startedAt               DateTime @default(now())
+  completedAt             DateTime?
+
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([trigger])
+  @@index([status])
+  @@index([startedAt])
+}
 model DiscoveredPrompt {
   id           String   @id @default(cuid())
   sourceId     String?
