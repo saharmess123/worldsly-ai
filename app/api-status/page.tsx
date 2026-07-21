@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
+import AIProviderHealth from "./AIProviderHealth";
 
 type ApiStatusValue = "Checking" | "Online" | "Error";
 
@@ -465,6 +466,8 @@ export default function ApiStatusPage() {
             </p>
           </div>
         </div>
+
+        <AIProviderHealth />
 
         <div className="grid gap-6">
           {apis.map((api) => (
