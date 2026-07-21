@@ -626,7 +626,7 @@ export default function SourcesPage() {
             <div className="relative">
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-sm font-black text-blue-500">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                Source Scanning Prototype
+                Real Source Intelligence
               </div>
 
               <h1 className="max-w-4xl text-4xl font-black leading-tight tracking-tight md:text-6xl">
@@ -634,8 +634,7 @@ export default function SourcesPage() {
               </h1>
 
               <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600 dark:text-slate-300">
-                Each active source can now generate mock discovered prompts,
-                update its last scan date, and feed the Discovery pipeline.
+                Each active source can retrieve real public web content, analyze it with the AI runtime, and feed grounded prompts into the Discovery pipeline.
               </p>
 
               <div className="mt-8 flex flex-col gap-4 sm:flex-row">
@@ -715,7 +714,7 @@ export default function SourcesPage() {
             </div>
 
             <p className="mt-5 text-sm text-slate-400">
-              Paused: {pausedSources} · Archived: {archivedSources}
+              Paused: {pausedSources} Â· Archived: {archivedSources}
             </p>
 
             <p className="mt-2 text-sm text-slate-400">
@@ -731,7 +730,7 @@ export default function SourcesPage() {
                 Add New Source
               </h2>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                Add a source, then scan it to generate discovered prompts.
+                Add a public HTTP or HTTPS source, then scan its real content to generate grounded discovered prompts.
               </p>
             </div>
 
@@ -961,7 +960,7 @@ export default function SourcesPage() {
                             {getCredibilityLabel(
                               source.credibilityScore
                             )}{" "}
-                            ·{" "}
+                            Â·{" "}
                             {
                               source.credibilityScore
                             }
