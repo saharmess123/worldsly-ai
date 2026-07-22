@@ -139,6 +139,14 @@ function formatSourceItem(
     url: item.url,
     credibilityScore:
       item.credibilityScore,
+    credibilityMethod:
+      item.credibilityMethod,
+    credibilityConfidence:
+      item.credibilityConfidence,
+    credibilityReason:
+      item.credibilityReason,
+    credibilityUpdatedAt:
+      formatDate(item.credibilityUpdatedAt),
     status: item.status,
 
     lastScanAt:
@@ -359,7 +367,7 @@ export async function POST(
             success: true,
             scanStatus: "completed",
             message:
-              `${result.createdCount} discovered prompt(s) were created via ${result.provider} using ${result.retrievedCharacterCount} retrieved characters.${duplicateMessage}`,
+              `${result.createdCount} discovered prompt(s) were created via ${result.provider} using ${result.retrievedCharacterCount} retrieved characters. Credibility: ${result.credibilityScore}% (${result.credibilityConfidence}% confidence).${duplicateMessage}`,
             createdCount:
               result.createdCount,
             skippedDuplicateCount:
@@ -485,6 +493,12 @@ export async function POST(
           url:
             url || null,
           credibilityScore,
+          credibilityMethod: "manual",
+          credibilityConfidence: 100,
+          credibilityReason:
+            "Manually assigned during source creation.",
+          credibilityUpdatedAt:
+            new Date(),
           status,
           scanFrequency,
         },

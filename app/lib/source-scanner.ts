@@ -11,8 +11,15 @@ type ScannedPrompt = {
   qualityScore?: unknown;
 };
 
+type ScannedCredibility = {
+  score?: unknown;
+  confidence?: unknown;
+  reason?: unknown;
+};
+
 type ScannedResponse = {
   prompts?: ScannedPrompt[];
+  credibility?: ScannedCredibility;
 };
 
 export type SourceScanTrigger =
@@ -104,6 +111,9 @@ Security and grounding rules:
 - Do not invent facts or claim access to information not supplied.
 - Do not copy large source passages.
 - Return reusable prompt templates, not summaries of your own instructions.
+- Assess source credibility using authority, transparency, evidence quality, specificity, freshness signals, and consistency.
+- The credibility score must describe this retrieved content, not merely the domain reputation.
+- Keep the credibility reason concise and grounded in observable content.
 
 Return valid JSON only with this schema:
 {
@@ -114,7 +124,12 @@ Return valid JSON only with this schema:
       "category": "Research",
       "qualityScore": 85
     }
-  ]
+  ],
+  "credibility": {
+    "score": 85,
+    "confidence": 80,
+    "reason": "Concise evidence-based assessment"
+  }
 }`;
 }
 
@@ -278,6 +293,59 @@ export async function scanSourceById(
       );
     }
 
+    const credibilityScore =
+      Number(
+        parsed.credibility?.score,
+      );
+
+    const credibilityConfidence =
+      Number(
+        parsed.credibility?.confidence,
+      );
+
+    const credibilityReason =
+      normalizeText(
+        parsed.credibility?.reason,
+      ).slice(0, 500);
+
+    if (
+      !Number.isFinite(
+        credibilityScore,
+      ) ||
+      !Number.isFinite(
+        credibilityConfidence,
+      ) ||
+      !credibilityReason
+    ) {
+      throw new SourceScanError(
+        "The AI runtime returned invalid source credibility data.",
+        502,
+        "SOURCE_CREDIBILITY_INVALID_RESPONSE",
+      );
+    }
+
+    const normalizedCredibilityScore =
+      Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            credibilityScore,
+          ),
+        ),
+      );
+
+    const normalizedCredibilityConfidence =
+      Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            credibilityConfidence,
+          ),
+        ),
+      );
+
     const discoveredAt =
       new Date();
 
@@ -389,6 +457,15 @@ export async function scanSourceById(
               data: {
                 lastScanAt:
                   scanCompletedAt,
+                credibilityScore:
+                  normalizedCredibilityScore,
+                credibilityMethod:
+                  "ai_scan",
+                credibilityConfidence:
+                  normalizedCredibilityConfidence,
+                credibilityReason,
+                credibilityUpdatedAt:
+                  scanCompletedAt,
               },
               include: {
                 _count: {
@@ -417,6 +494,11 @@ export async function scanSourceById(
                 promptsToInsert.length,
               retrievedCharacterCount:
                 retrievedContent.characterCount,
+              credibilityScore:
+                normalizedCredibilityScore,
+              credibilityConfidence:
+                normalizedCredibilityConfidence,
+              credibilityReason,
               durationMs,
               completedAt:
                 scanCompletedAt,
@@ -437,6 +519,11 @@ export async function scanSourceById(
       trigger,
       provider:
         aiResponse.provider,
+      credibilityScore:
+        normalizedCredibilityScore,
+      credibilityConfidence:
+        normalizedCredibilityConfidence,
+      credibilityReason,
       createdCount:
         promptsToInsert.length,
       generatedCount:

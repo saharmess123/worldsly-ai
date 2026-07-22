@@ -91,7 +91,11 @@ model Source {
   name             String
   type             String
   url              String?
-  credibilityScore Int       @default(0)
+  credibilityScore      Int       @default(0)
+  credibilityMethod     String    @default("manual")
+  credibilityConfidence Int       @default(0)
+  credibilityReason     String?
+  credibilityUpdatedAt  DateTime?
   status           String    @default("active")
   lastScanAt       DateTime?
   scanFrequency    String    @default("manual")
@@ -119,6 +123,9 @@ model SourceScanEvent {
   durationMs              Int      @default(0)
   errorCode               String?
   errorMessage            String?
+  credibilityScore        Int?
+  credibilityConfidence   Int?
+  credibilityReason       String?
   startedAt               DateTime @default(now())
   completedAt             DateTime?
 

@@ -15,6 +15,10 @@ type SourceItem = {
   type: string;
   url: string | null;
   credibilityScore: number;
+  credibilityMethod: string;
+  credibilityConfidence: number;
+  credibilityReason: string | null;
+  credibilityUpdatedAt: string | null;
   status: string;
   lastScanAt: string | null;
   lastScanLabel: string;
@@ -1054,11 +1058,18 @@ export default function SourcesPage() {
                           Credibility
                         </h3>
                         <p className="mt-3 text-4xl font-black">
-                          {
-                            source.credibilityScore
-                          }
-                          %
+                          {source.credibilityScore}%
                         </p>
+                        <p className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                          {source.credibilityMethod === "ai_scan"
+                            ? `AI scan · ${source.credibilityConfidence}% confidence`
+                            : "Manual score"}
+                        </p>
+                        {source.credibilityReason && (
+                          <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                            {source.credibilityReason}
+                          </p>
+                        )}
                       </div>
 
                       <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-slate-950/60">

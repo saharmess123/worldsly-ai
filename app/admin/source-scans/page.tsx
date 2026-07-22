@@ -30,6 +30,9 @@ type SourceScanEvent = {
   trigger: ScanTrigger;
   status: ScanStatus;
   provider: string | null;
+  credibilityScore: number | null;
+  credibilityConfidence: number | null;
+  credibilityReason: string | null;
   createdCount: number;
   generatedCount: number;
   skippedDuplicateCount: number;
@@ -561,6 +564,9 @@ export default function SourceScansPage() {
                       Provider
                     </th>
                     <th className="px-6 py-4">
+                      Credibility
+                    </th>
+                    <th className="px-6 py-4">
                       Prompts
                     </th>
                     <th className="px-6 py-4">
@@ -607,6 +613,25 @@ export default function SourceScansPage() {
 
                       <td className="px-6 py-5 font-bold">
                         {event.provider || "—"}
+                      </td>
+                      <td className="px-6 py-5">
+                        {event.credibilityScore === null ? (
+                          <span className="text-slate-500">N/A</span>
+                        ) : (
+                          <>
+                            <p className="font-black">
+                              {event.credibilityScore}%
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {event.credibilityConfidence ?? 0}% confidence
+                            </p>
+                            {event.credibilityReason && (
+                              <p className="mt-2 max-w-xs text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                {event.credibilityReason}
+                              </p>
+                            )}
+                          </>
+                        )}
                       </td>
 
                       <td className="px-6 py-5">
