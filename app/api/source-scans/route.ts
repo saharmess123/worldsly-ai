@@ -309,6 +309,12 @@ export async function GET(
         trigger: event.trigger,
         status: event.status,
         provider: event.provider,
+        credibilityScore:
+          event.credibilityScore,
+        credibilityConfidence:
+          event.credibilityConfidence,
+        credibilityReason:
+          event.credibilityReason,
         createdCount:
           event.createdCount,
         generatedCount:
