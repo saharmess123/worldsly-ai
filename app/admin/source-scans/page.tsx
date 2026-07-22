@@ -8,6 +8,9 @@ import {
 } from "react";
 
 import Navbar from "../../components/Navbar";
+import CredibilityTrendChart, {
+  type CredibilityTrendPoint,
+} from "./CredibilityTrendChart";
 
 type ScanStatus =
   | "running"
@@ -255,6 +258,29 @@ export default function SourceScansPage() {
     );
   }, [data]);
 
+  const credibilityTrendPoints =
+    useMemo<CredibilityTrendPoint[]>(
+      () =>
+        (data?.events ?? [])
+          .filter(
+            (event) =>
+              event.credibilityScore !== null,
+          )
+          .sort(
+            (left, right) =>
+              new Date(left.startedAt).getTime() -
+              new Date(right.startedAt).getTime(),
+          )
+          .map((event) => ({
+            id: event.id,
+            sourceName: event.source.name,
+            score: event.credibilityScore ?? 0,
+            confidence:
+              event.credibilityConfidence ?? 0,
+            startedAt: event.startedAt,
+          })),
+      [data],
+    );
   return (
     <main className="min-h-screen overflow-hidden bg-slate-100 px-6 py-6 text-slate-950 transition dark:bg-[#030712] dark:text-white">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -402,6 +428,42 @@ export default function SourceScansPage() {
               </p>
             </div>
           ))}
+        </div>
+
+        <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+          <div className="mb-6">
+            <p className="text-sm font-black uppercase tracking-widest text-cyan-500">
+              Credibility analytics
+            </p>
+            <h2 className="mt-2 text-2xl font-black">
+              Credibility Trend
+            </h2>
+            <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Follow AI credibility scores and confidence across the selected scan history.
+            </p>
+          </div>
+
+          <CredibilityTrendChart
+            points={credibilityTrendPoints}
+          />
+        </div>
+
+        <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+          <div className="mb-6">
+            <p className="text-sm font-black uppercase tracking-widest text-cyan-500">
+              Credibility analytics
+            </p>
+            <h2 className="mt-2 text-2xl font-black">
+              Credibility Trend
+            </h2>
+            <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Follow AI credibility scores and confidence across the selected scan history.
+            </p>
+          </div>
+
+          <CredibilityTrendChart
+            points={credibilityTrendPoints}
+          />
         </div>
 
         <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
