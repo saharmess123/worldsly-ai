@@ -432,6 +432,13 @@ export default function AdminPage() {
               </a>
 
               <a
+                href="/admin/source-credibility-alerts"
+                className="rounded-2xl border border-red-500/20 bg-red-500/10 px-6 py-4 font-black text-red-500"
+              >
+                Credibility Alerts
+              </a>
+
+              <a
                 href="/training"
                 className="rounded-2xl border border-slate-300 bg-white/70 px-6 py-4 font-black dark:border-white/10 dark:bg-white/5"
               >

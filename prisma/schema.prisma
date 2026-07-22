@@ -87,55 +87,82 @@ model Feedback {
 }
 
 model Source {
-  id               String    @id @default(cuid())
-  name             String
-  type             String
-  url              String?
+  id                    String    @id @default(cuid())
+  name                  String
+  type                  String
+  url                   String?
   credibilityScore      Int       @default(0)
   credibilityMethod     String    @default("manual")
   credibilityConfidence Int       @default(0)
   credibilityReason     String?
   credibilityUpdatedAt  DateTime?
-  status           String    @default("active")
-  lastScanAt       DateTime?
-  scanFrequency    String    @default("manual")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  status                String    @default("active")
+  lastScanAt            DateTime?
+  scanFrequency         String    @default("manual")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   discoveredPrompts DiscoveredPrompt[]
   scanEvents        SourceScanEvent[]
+  credibilityAlerts SourceCredibilityAlert[]
 
   @@index([type])
   @@index([status])
 }
 
-
 model SourceScanEvent {
-  id                      String   @id @default(cuid())
+  id                      String    @id @default(cuid())
   sourceId                String
-  trigger                 String   @default("manual")
+  trigger                 String    @default("manual")
   status                  String
   provider                String?
-  createdCount            Int      @default(0)
-  generatedCount          Int      @default(0)
-  skippedDuplicateCount   Int      @default(0)
-  retrievedCharacterCount Int      @default(0)
-  durationMs              Int      @default(0)
+  createdCount            Int       @default(0)
+  generatedCount          Int       @default(0)
+  skippedDuplicateCount   Int       @default(0)
+  retrievedCharacterCount Int       @default(0)
+  durationMs              Int       @default(0)
   errorCode               String?
   errorMessage            String?
   credibilityScore        Int?
   credibilityConfidence   Int?
   credibilityReason       String?
-  startedAt               DateTime @default(now())
+  startedAt               DateTime  @default(now())
   completedAt             DateTime?
 
-  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source            Source                   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  credibilityAlerts SourceCredibilityAlert[]
 
   @@index([sourceId])
   @@index([trigger])
   @@index([status])
   @@index([startedAt])
 }
+
+model SourceCredibilityAlert {
+  id            String    @id @default(cuid())
+  sourceId      String
+  scanEventId   String?
+  severity      String
+  status        String    @default("open")
+  alertType     String
+  currentScore  Int
+  previousScore Int?
+  scoreDrop     Int?
+  threshold     Int?
+  message       String
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  source    Source           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  scanEvent SourceScanEvent? @relation(fields: [scanEventId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([scanEventId])
+  @@index([severity])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model DiscoveredPrompt {
   id           String   @id @default(cuid())
   sourceId     String?

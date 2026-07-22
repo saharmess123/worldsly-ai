@@ -3,6 +3,86 @@ import { prisma } from "./prisma";
 import { retrieveSourceContent } from "./source-intelligence";
 
 const DEFAULT_SCAN_COOLDOWN_MS = 10_000;
+const CREDIBILITY_LOW_SCORE_THRESHOLD = 60;
+const CREDIBILITY_DROP_THRESHOLD = 15;
+
+type CredibilityAlertCandidate = {
+  severity: "medium" | "high" | "critical";
+  alertType:
+    | "low_score"
+    | "significant_drop"
+    | "low_score_and_drop";
+  previousScore: number | null;
+  scoreDrop: number | null;
+  threshold: number;
+  message: string;
+};
+
+function buildCredibilityAlertCandidate(
+  sourceName: string,
+  currentScore: number,
+  previousScore: number | null,
+): CredibilityAlertCandidate | null {
+  const scoreDrop =
+    previousScore === null
+      ? null
+      : previousScore - currentScore;
+
+  const hasLowScore =
+    currentScore <
+    CREDIBILITY_LOW_SCORE_THRESHOLD;
+
+  const hasSignificantDrop =
+    scoreDrop !== null &&
+    scoreDrop >=
+      CREDIBILITY_DROP_THRESHOLD;
+
+  if (!hasLowScore && !hasSignificantDrop) {
+    return null;
+  }
+
+  const severity =
+    currentScore < 40 ||
+    (scoreDrop !== null && scoreDrop >= 30)
+      ? "critical"
+      : hasLowScore
+        ? "high"
+        : "medium";
+
+  if (hasLowScore && hasSignificantDrop) {
+    return {
+      severity,
+      alertType: "low_score_and_drop",
+      previousScore,
+      scoreDrop,
+      threshold:
+        CREDIBILITY_LOW_SCORE_THRESHOLD,
+      message: `${sourceName} credibility fell by ${scoreDrop} points to ${currentScore}%, below the ${CREDIBILITY_LOW_SCORE_THRESHOLD}% threshold.`,
+    };
+  }
+
+  if (hasLowScore) {
+    return {
+      severity,
+      alertType: "low_score",
+      previousScore,
+      scoreDrop,
+      threshold:
+        CREDIBILITY_LOW_SCORE_THRESHOLD,
+      message: `${sourceName} credibility is ${currentScore}%, below the ${CREDIBILITY_LOW_SCORE_THRESHOLD}% threshold.`,
+    };
+  }
+
+  return {
+    severity,
+    alertType: "significant_drop",
+    previousScore,
+    scoreDrop,
+    threshold:
+      CREDIBILITY_DROP_THRESHOLD,
+    message: `${sourceName} credibility dropped by ${scoreDrop} points to ${currentScore}%.`,
+  };
+}
 
 type ScannedPrompt = {
   title?: unknown;
@@ -438,6 +518,14 @@ export async function scanSourceById(
         Date.now() - startedTime,
       );
 
+    const credibilityAlert =
+      buildCredibilityAlertCandidate(
+        source.name,
+        normalizedCredibilityScore,
+        source.credibilityMethod === "ai_scan"
+          ? source.credibilityScore
+          : null,
+      );
     const updatedSource =
       await prisma.$transaction(
         async (transaction) => {
@@ -505,6 +593,21 @@ export async function scanSourceById(
             },
           });
 
+          if (credibilityAlert) {
+            await transaction.sourceCredibilityAlert.create({
+              data: {
+                sourceId: source.id,
+                scanEventId: scanEvent.id,
+                severity: credibilityAlert.severity,
+                alertType: credibilityAlert.alertType,
+                currentScore: normalizedCredibilityScore,
+                previousScore: credibilityAlert.previousScore,
+                scoreDrop: credibilityAlert.scoreDrop,
+                threshold: credibilityAlert.threshold,
+                message: credibilityAlert.message,
+              },
+            });
+          }
           return updated;
         },
       );
