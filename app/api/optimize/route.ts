@@ -8,6 +8,7 @@ import {
   buildOptimizerUserPrompt,
 } from "../../lib/ai/prompts";
 import { generateWithAIRuntime } from "../../lib/ai/runtime";
+import { prisma } from "../../lib/prisma";
 
 type OptimizeRequest = {
   prompt?: string;
@@ -1017,6 +1018,40 @@ export async function POST(
         personalStyle,
       });
 
+    // Fetch high-scoring curated examples from Corpus to act as few-shot demonstrations
+    let fewShots = "";
+    let fewShotsCount = 0;
+    try {
+      const examples = await prisma.corpusPrompt.findMany({
+        where: {
+          category: category,
+          isArchived: false,
+        },
+        orderBy: {
+          qualityScore: "desc",
+        },
+        take: 2,
+      });
+
+      fewShotsCount = examples.length;
+      if (examples.length > 0) {
+        fewShots = examples
+          .map(
+            (ex: any, idx: number) => `
+### Example ${idx + 1}:
+Original Input Prompt:
+"${ex.prompt}"
+
+Optimized Target Output:
+"${ex.improvedVersion || ex.prompt}"
+`
+          )
+          .join("\n");
+      }
+    } catch (err) {
+      console.warn("Few-shot example selection failed:", err);
+    }
+
     const aiResponse =
       await generateWithAIRuntime({
         messages: [
@@ -1025,6 +1060,7 @@ export async function POST(
             content:
               buildOptimizerSystemPrompt(
                 category,
+                fewShots,
               ),
           },
           {
@@ -1114,6 +1150,7 @@ export async function POST(
       mode,
       aiProvider,
       openAiModel: aiModel,
+      fewShotsCount,
       storageMode:
         "sqlite_prisma_ready",
       engineStatus:

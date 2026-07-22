@@ -79,6 +79,7 @@ model Feedback {
 
   user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   optimization Optimization? @relation(fields: [optimizationId], references: [id], onDelete: SetNull)
+  evaluationResults EvaluationResult[]
 
   @@index([userId])
   @@index([optimizationId])
@@ -87,55 +88,82 @@ model Feedback {
 }
 
 model Source {
-  id               String    @id @default(cuid())
-  name             String
-  type             String
-  url              String?
+  id                    String    @id @default(cuid())
+  name                  String
+  type                  String
+  url                   String?
   credibilityScore      Int       @default(0)
   credibilityMethod     String    @default("manual")
   credibilityConfidence Int       @default(0)
   credibilityReason     String?
   credibilityUpdatedAt  DateTime?
-  status           String    @default("active")
-  lastScanAt       DateTime?
-  scanFrequency    String    @default("manual")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  status                String    @default("active")
+  lastScanAt            DateTime?
+  scanFrequency         String    @default("manual")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   discoveredPrompts DiscoveredPrompt[]
   scanEvents        SourceScanEvent[]
+  credibilityAlerts SourceCredibilityAlert[]
 
   @@index([type])
   @@index([status])
 }
 
-
 model SourceScanEvent {
-  id                      String   @id @default(cuid())
+  id                      String    @id @default(cuid())
   sourceId                String
-  trigger                 String   @default("manual")
+  trigger                 String    @default("manual")
   status                  String
   provider                String?
-  createdCount            Int      @default(0)
-  generatedCount          Int      @default(0)
-  skippedDuplicateCount   Int      @default(0)
-  retrievedCharacterCount Int      @default(0)
-  durationMs              Int      @default(0)
+  createdCount            Int       @default(0)
+  generatedCount          Int       @default(0)
+  skippedDuplicateCount   Int       @default(0)
+  retrievedCharacterCount Int       @default(0)
+  durationMs              Int       @default(0)
   errorCode               String?
   errorMessage            String?
   credibilityScore        Int?
   credibilityConfidence   Int?
   credibilityReason       String?
-  startedAt               DateTime @default(now())
+  startedAt               DateTime  @default(now())
   completedAt             DateTime?
 
-  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source            Source                   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  credibilityAlerts SourceCredibilityAlert[]
 
   @@index([sourceId])
   @@index([trigger])
   @@index([status])
   @@index([startedAt])
 }
+
+model SourceCredibilityAlert {
+  id            String    @id @default(cuid())
+  sourceId      String
+  scanEventId   String?
+  severity      String
+  status        String    @default("open")
+  alertType     String
+  currentScore  Int
+  previousScore Int?
+  scoreDrop     Int?
+  threshold     Int?
+  message       String
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  source    Source           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  scanEvent SourceScanEvent? @relation(fields: [scanEventId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([scanEventId])
+  @@index([severity])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model DiscoveredPrompt {
   id           String   @id @default(cuid())
   sourceId     String?
@@ -193,6 +221,7 @@ model CorpusPrompt {
 
   discoveredPrompt DiscoveredPrompt? @relation(fields: [discoveredPromptId], references: [id], onDelete: SetNull)
   trainingSignals  TrainingSignal[]
+  evaluationResults EvaluationResult[]
 
   @@index([category])
   @@index([model])
@@ -254,4 +283,47 @@ model AIRuntimeEvent {
   @@index([resolvedProvider])
   @@index([success])
   @@index([createdAt])
+}
+
+model EvaluationRun {
+  id                String             @id @default(cuid())
+  meanAbsoluteError Float
+  status            String
+  testedCount       Int
+  runType           String             @default("quality_calibration")
+  provider          String?
+  createdAt         DateTime           @default(now())
+  results           EvaluationResult[]
+}
+
+model EvaluationResult {
+  id                     String         @id @default(cuid())
+  evaluationRunId        String
+  corpusPromptId         String?
+  feedbackId             String?
+  promptTitle            String
+  promptContent          String
+  targetScore            Int
+  calculatedScore        Int
+  scoreDeviation         Int
+  scoringMode            String
+  clarityTarget          Int            @default(0)
+  clarityCalculated      Int            @default(0)
+  specificityTarget      Int            @default(0)
+  specificityCalculated  Int            @default(0)
+  contextTarget          Int            @default(0)
+  contextCalculated      Int            @default(0)
+  constraintsTarget      Int            @default(0)
+  constraintsCalculated  Int            @default(0)
+  outputFormatTarget     Int            @default(0)
+  outputFormatCalculated Int            @default(0)
+  createdAt              DateTime       @default(now())
+
+  evaluationRun          EvaluationRun  @relation(fields: [evaluationRunId], references: [id], onDelete: Cascade)
+  corpusPrompt           CorpusPrompt?  @relation(fields: [corpusPromptId], references: [id], onDelete: SetNull)
+  feedback               Feedback?      @relation(fields: [feedbackId], references: [id], onDelete: SetNull)
+
+  @@index([evaluationRunId])
+  @@index([corpusPromptId])
+  @@index([feedbackId])
 }

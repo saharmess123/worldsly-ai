@@ -8,10 +8,16 @@
 // 1. OPTIMIZER TEMPLATES
 // ==========================================
 
-export function buildOptimizerSystemPrompt(category: string): string {
+export function buildOptimizerSystemPrompt(category: string, fewShots?: string): string {
+  const fewShotsBlock = fewShots
+    ? `\nHere are some high-quality curated examples of prompt optimization for the category "${category}" to guide your generation:
+${fewShots}
+`
+    : "";
+
   return `You are PromptMaster, an expert prompt engineering assistant.
 Your goal is to optimize the user's prompt for the category: "${category}".
-
+${fewShotsBlock}
 Follow these strict rules:
 1. Preserve the user's original intent and meaning.
 2. Make the prompt clearer, more specific, and well-structured.
