@@ -243,8 +243,65 @@ export default function AdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSeeding, setIsSeeding] = useState(false);
   const [isClearingDemo, setIsClearingDemo] = useState(false);
+  const [isExecutingAction, setIsExecutingAction] = useState<string | null>(null);
+  const [calibrationData, setCalibrationData] = useState<any>(null);
+  const [isCalibrating, setIsCalibrating] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  async function runCalibration() {
+    try {
+      setIsCalibrating(true);
+      setError("");
+      setMessage("");
+
+      const res = await fetch("/api/ai/calibrate", { method: "POST" });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Calibration run failed.");
+      }
+
+      setCalibrationData(data);
+      setMessage("Quality calibration suite executed successfully.");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to run calibration suite."
+      );
+    } finally {
+      setIsCalibrating(false);
+    }
+  }
+
+  async function handleAdminAction(action: string) {
+    try {
+      setIsExecutingAction(action);
+      setError("");
+      setMessage("");
+
+      const response = await fetch("/api/pipeline/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Failed to execute action ${action}.`);
+      }
+
+      setMessage(data.message || "Action executed successfully.");
+      await loadAnalytics();
+    } catch (actionError) {
+      setError(
+        actionError instanceof Error
+          ? actionError.message
+          : `Failed to execute pipeline action: ${action}`
+      );
+    } finally {
+      setIsExecutingAction(null);
+    }
+  }
 
   async function loadAnalytics() {
     try {
@@ -441,7 +498,7 @@ export default function AdminPage() {
               <button
                 onClick={seedDemoData}
                 disabled={isSeeding}
-                className="rounded-2xl bg-emerald-500 px-6 py-4 font-black text-white disabled:opacity-60"
+                className="rounded-2xl bg-emerald-500 px-6 py-4 font-black text-white disabled:opacity-60 transition hover:bg-emerald-600"
               >
                 {isSeeding ? "Seeding..." : "Seed Demo Data"}
               </button>
@@ -449,9 +506,41 @@ export default function AdminPage() {
               <button
                 onClick={clearDemoData}
                 disabled={isClearingDemo}
-                className="rounded-2xl bg-red-500 px-6 py-4 font-black text-white disabled:opacity-60"
+                className="rounded-2xl bg-red-500 px-6 py-4 font-black text-white disabled:opacity-60 transition hover:bg-red-600"
               >
                 {isClearingDemo ? "Clearing..." : "Clear Demo Data"}
+              </button>
+
+              <button
+                onClick={() => handleAdminAction("trigger-scan")}
+                disabled={isExecutingAction !== null}
+                className="rounded-2xl bg-indigo-600 px-6 py-4 font-black text-white disabled:opacity-60 transition hover:bg-indigo-700"
+              >
+                {isExecutingAction === "trigger-scan" ? "Scanning..." : "Scan Active Sources"}
+              </button>
+
+              <button
+                onClick={() => handleAdminAction("flush-curation")}
+                disabled={isExecutingAction !== null}
+                className="rounded-2xl bg-purple-600 px-6 py-4 font-black text-white disabled:opacity-60 transition hover:bg-purple-700"
+              >
+                {isExecutingAction === "flush-curation" ? "Flushing..." : "Flush Curation Queue"}
+              </button>
+
+              <button
+                onClick={() => handleAdminAction("generate-signals")}
+                disabled={isExecutingAction !== null}
+                className="rounded-2xl bg-fuchsia-600 px-6 py-4 font-black text-white disabled:opacity-60 transition hover:bg-fuchsia-700"
+              >
+                {isExecutingAction === "generate-signals" ? "Syncing..." : "Sync Dataset"}
+              </button>
+
+              <button
+                onClick={() => handleAdminAction("purge-archived")}
+                disabled={isExecutingAction !== null}
+                className="rounded-2xl bg-amber-600 px-6 py-4 font-black text-white disabled:opacity-60 transition hover:bg-amber-750"
+              >
+                {isExecutingAction === "purge-archived" ? "Purging..." : "Purge Archived"}
               </button>
             </div>
 
@@ -567,6 +656,100 @@ export default function AdminPage() {
             title="Corpus-linked Signals"
             value={analytics.training.corpusLinkedSignals}
           />
+        </div>
+
+        {/* Quality Calibration Panel */}
+        <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white/80 p-7 shadow-xl dark:border-white/10 dark:bg-white/5">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center mb-6">
+            <div>
+              <h2 className="text-3xl font-black">Prompt Quality Calibration</h2>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                Run reference prompts against scoring models to calibrate alignment with expert benchmarks.
+              </p>
+            </div>
+
+            <button
+              onClick={runCalibration}
+              disabled={isCalibrating}
+              className="rounded-2xl bg-indigo-600 px-6 py-3.5 font-black text-white transition hover:bg-indigo-700 disabled:opacity-60 shrink-0 shadow-lg shadow-indigo-600/20"
+            >
+              {isCalibrating ? "Calibrating..." : "🔍 Run Calibration Suite"}
+            </button>
+          </div>
+
+          {calibrationData ? (
+            <div className="space-y-6">
+              {/* Scorecard row */}
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-slate-950/60">
+                  <p className="text-xs font-bold text-slate-400">Tested Prompts</p>
+                  <h3 className="mt-1 text-3xl font-black">{calibrationData.testedCount}</h3>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-slate-950/60">
+                  <p className="text-xs font-bold text-slate-400">Mean Absolute Error (MAE)</p>
+                  <h3 className="mt-1 text-3xl font-black">{calibrationData.meanAbsoluteError}%</h3>
+                </div>
+
+                <div className={`rounded-2xl border p-4 ${calibrationData.statusColor}`}>
+                  <p className="text-xs font-bold">Calibration Status</p>
+                  <h3 className="mt-1 text-3xl font-black">{calibrationData.status}</h3>
+                </div>
+              </div>
+
+              {/* Runs Table */}
+              <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-slate-950/40">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/80 font-black uppercase text-slate-500">
+                      <th className="p-4">Prompt Title</th>
+                      <th className="p-4">Category</th>
+                      <th className="p-4 text-center">Expert Target</th>
+                      <th className="p-4 text-center">Calculated</th>
+                      <th className="p-4 text-center">Deviation</th>
+                      <th className="p-4 text-center">Scoring Engine</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calibrationData.runs.map((run: any) => {
+                      const dev = run.scoreDeviation;
+                      const absDev = Math.abs(dev);
+                      let devColor = "text-emerald-500 font-bold";
+                      if (absDev > 10) devColor = "text-red-500 font-bold";
+                      else if (absDev > 5) devColor = "text-amber-500 font-bold";
+
+                      return (
+                        <tr key={run.id} className="border-b border-slate-200/60 dark:border-white/5 hover:bg-slate-100/40 dark:hover:bg-white/5">
+                          <td className="p-4 font-bold max-w-xs truncate" title={run.prompt}>
+                            {run.title}
+                          </td>
+                          <td className="p-4 text-slate-500">{run.category}</td>
+                          <td className="p-4 text-center font-bold">{run.targetScore}%</td>
+                          <td className="p-4 text-center font-bold">{run.calculatedScore}%</td>
+                          <td className={`p-4 text-center ${devColor}`}>
+                            {dev > 0 ? `+${dev}` : dev}%
+                          </td>
+                          <td className="p-4 text-center">
+                            <span className="rounded-full bg-blue-500/10 px-2.5 py-1 text-[10px] font-black text-blue-500 uppercase">
+                              {run.mode}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/50 p-10 text-center dark:border-white/10 dark:bg-slate-950/20">
+              <span className="text-4xl">🔬</span>
+              <h3 className="mt-2 text-base font-black">No calibration metrics loaded</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Trigger a run to test AI and rule-based prompt grading performance against expert benchmarks.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white/80 p-5 dark:border-white/10 dark:bg-white/5">
