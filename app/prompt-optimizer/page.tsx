@@ -148,6 +148,14 @@ export default function PromptOptimizerPage() {
     if (savedGoal) setGoal(savedGoal);
     if (savedFormat) setOutputFormat(savedFormat);
     if (savedStyle) setPersonalStyle(savedStyle);
+
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const promptParam = urlParams.get("prompt");
+      const categoryParam = urlParams.get("category");
+      if (promptParam) setPrompt(promptParam);
+      if (categoryParam) setCategory(categoryParam);
+    }
   }, []);
 
   const resultLift = useMemo(() => {
@@ -162,7 +170,7 @@ export default function PromptOptimizerPage() {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60-second timeout for AI models (Ollama/OpenAI)
 
     try {
       setIsOptimizing(true);

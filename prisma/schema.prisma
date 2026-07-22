@@ -79,6 +79,7 @@ model Feedback {
 
   user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   optimization Optimization? @relation(fields: [optimizationId], references: [id], onDelete: SetNull)
+  evaluationResults EvaluationResult[]
 
   @@index([userId])
   @@index([optimizationId])
@@ -220,6 +221,7 @@ model CorpusPrompt {
 
   discoveredPrompt DiscoveredPrompt? @relation(fields: [discoveredPromptId], references: [id], onDelete: SetNull)
   trainingSignals  TrainingSignal[]
+  evaluationResults EvaluationResult[]
 
   @@index([category])
   @@index([model])
@@ -281,4 +283,47 @@ model AIRuntimeEvent {
   @@index([resolvedProvider])
   @@index([success])
   @@index([createdAt])
+}
+
+model EvaluationRun {
+  id                String             @id @default(cuid())
+  meanAbsoluteError Float
+  status            String
+  testedCount       Int
+  runType           String             @default("quality_calibration")
+  provider          String?
+  createdAt         DateTime           @default(now())
+  results           EvaluationResult[]
+}
+
+model EvaluationResult {
+  id                     String         @id @default(cuid())
+  evaluationRunId        String
+  corpusPromptId         String?
+  feedbackId             String?
+  promptTitle            String
+  promptContent          String
+  targetScore            Int
+  calculatedScore        Int
+  scoreDeviation         Int
+  scoringMode            String
+  clarityTarget          Int            @default(0)
+  clarityCalculated      Int            @default(0)
+  specificityTarget      Int            @default(0)
+  specificityCalculated  Int            @default(0)
+  contextTarget          Int            @default(0)
+  contextCalculated      Int            @default(0)
+  constraintsTarget      Int            @default(0)
+  constraintsCalculated  Int            @default(0)
+  outputFormatTarget     Int            @default(0)
+  outputFormatCalculated Int            @default(0)
+  createdAt              DateTime       @default(now())
+
+  evaluationRun          EvaluationRun  @relation(fields: [evaluationRunId], references: [id], onDelete: Cascade)
+  corpusPrompt           CorpusPrompt?  @relation(fields: [corpusPromptId], references: [id], onDelete: SetNull)
+  feedback               Feedback?      @relation(fields: [feedbackId], references: [id], onDelete: SetNull)
+
+  @@index([evaluationRunId])
+  @@index([corpusPromptId])
+  @@index([feedbackId])
 }

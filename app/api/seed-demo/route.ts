@@ -104,6 +104,8 @@ async function handleSeed() {
     await prisma.curationReview.deleteMany();
     await prisma.discoveredPrompt.deleteMany();
     await prisma.source.deleteMany();
+    await prisma.evaluationResult.deleteMany();
+    await prisma.evaluationRun.deleteMany();
 
     for (const source of demoSources) {
       await prisma.source.create({
@@ -194,4 +196,26 @@ export async function GET() {
 
 export async function POST() {
   return handleSeed();
+}
+
+export async function DELETE() {
+  try {
+    await prisma.feedback.deleteMany();
+    await prisma.optimization.deleteMany();
+    await prisma.trainingSignal.deleteMany();
+    await prisma.corpusPrompt.deleteMany();
+    await prisma.curationReview.deleteMany();
+    await prisma.discoveredPrompt.deleteMany();
+    await prisma.source.deleteMany();
+    await prisma.evaluationResult.deleteMany();
+    await prisma.evaluationRun.deleteMany();
+
+    return NextResponse.json({
+      success: true,
+      message: "All database playground and calibration records cleared successfully.",
+    });
+  } catch (error) {
+    console.error("Clear demo data error:", error);
+    return internalServerError("Something went wrong while clearing the demo database.");
+  }
 }

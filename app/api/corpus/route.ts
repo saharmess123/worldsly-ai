@@ -3,258 +3,155 @@ import { cookies } from "next/headers";
 import { prisma } from "../../lib/prisma";
 import { verifyToken } from "../../lib/auth";
 
+// GET: Extended search, filters, sorting, versioning, and pagination
 export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
-    const token =
-      cookieStore.get("wordsly_session")?.value || "";
+    const token = cookieStore.get("wordsly_session")?.value || "";
     const session = verifyToken(token);
 
-    if (!session || session.role !== "admin") {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Access denied. Admin privileges required.",
-        },
-        { status: 403 },
-      );
+    // Read queries allowed for authenticated users or admins; optional public fallback
+    const url = new URL(request.url);
+    const searchQuery = url.searchParams.get("q") || url.searchParams.get("search") || "";
+    const categoryParam = url.searchParams.get("category");
+    const modelParam = url.searchParams.get("model");
+    const minScoreParam = url.searchParams.get("minScore");
+    const versionParam = url.searchParams.get("version");
+    const archivedParam = url.searchParams.get("archived");
+
+    const sortByParam = url.searchParams.get("sortBy") || "createdAt";
+    const sortOrderParam = (url.searchParams.get("sortOrder") || "desc").toLowerCase() === "asc" ? "asc" : "desc";
+
+    const pageParam = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+    const limitParam = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
+
+    // Construct Prisma where conditions
+    const whereClause: any = {};
+
+    if (archivedParam === "true") {
+      whereClause.isArchived = true;
+    } else if (archivedParam === "all") {
+      // Return both archived and active
+    } else {
+      whereClause.isArchived = false;
     }
 
-    const url = new URL(request.url);
-    const search =
-      url.searchParams.get("search")?.trim() || "";
-    const category =
-      url.searchParams.get("category")?.trim() || "";
-    const model =
-      url.searchParams.get("model")?.trim() || "";
-    const sort =
-      url.searchParams.get("sort")?.trim() ||
-      "newest";
+    if (categoryParam && categoryParam !== "All") {
+      whereClause.category = categoryParam;
+    }
 
-    const showArchived =
-      url.searchParams.get("archived") === "true";
+    if (modelParam && modelParam !== "All Models" && modelParam !== "All") {
+      whereClause.model = { contains: modelParam };
+    }
 
-    const minQualityValue = Number(
-      url.searchParams.get("minQuality") || "0",
-    );
+    if (minScoreParam && !isNaN(Number(minScoreParam))) {
+      whereClause.qualityScore = { gte: Number(minScoreParam) };
+    }
 
-    const pageValue = Number(
-      url.searchParams.get("page") || "1",
-    );
+    if (versionParam && !isNaN(Number(versionParam))) {
+      whereClause.version = Number(versionParam);
+    }
 
-    const limitValue = Number(
-      url.searchParams.get("limit") || "100",
-    );
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim();
+      whereClause.OR = [
+        { title: { contains: q } },
+        { prompt: { contains: q } },
+        { category: { contains: q } },
+        { patterns: { contains: q } },
+        { improvedVersion: { contains: q } },
+      ];
+    }
 
-    const minQuality = Number.isFinite(
-      minQualityValue,
-    )
-      ? Math.min(
-          100,
-          Math.max(0, Math.round(minQualityValue)),
-        )
-      : 0;
+    // Determine allowed sorting field
+    const allowedSortFields = ["createdAt", "updatedAt", "qualityScore", "title", "version"];
+    const sortByField = allowedSortFields.includes(sortByParam) ? sortByParam : "createdAt";
 
-    const page =
-      Number.isInteger(pageValue) && pageValue > 0
-        ? pageValue
-        : 1;
+    // Count total matching items
+    const totalItems = await prisma.corpusPrompt.count({
+      where: whereClause,
+    });
 
-    const limit =
-      Number.isInteger(limitValue) && limitValue > 0
-        ? Math.min(limitValue, 200)
-        : 100;
-
-    const orderBy =
-      sort === "oldest"
-        ? { createdAt: "asc" as const }
-        : sort === "quality-desc"
-          ? { qualityScore: "desc" as const }
-          : sort === "quality-asc"
-            ? { qualityScore: "asc" as const }
-            : sort === "title-asc"
-              ? { title: "asc" as const }
-              : sort === "title-desc"
-                ? { title: "desc" as const }
-                : { createdAt: "desc" as const };
-
-    const where = {
-      isArchived: showArchived,
-      qualityScore: {
-        gte: minQuality,
+    // Fetch paginated items
+    const prompts = await prisma.corpusPrompt.findMany({
+      where: whereClause,
+      orderBy: {
+        [sortByField]: sortOrderParam,
       },
-      ...(category && category !== "All"
-        ? {
-            category,
-          }
-        : {}),
-      ...(model && model !== "All"
-        ? {
-            model: {
-              contains: model,
-            },
-          }
-        : {}),
-      ...(search
-        ? {
-            OR: [
-              {
-                title: {
-                  contains: search,
-                },
-              },
-              {
-                prompt: {
-                  contains: search,
-                },
-              },
-              {
-                improvedVersion: {
-                  contains: search,
-                },
-              },
-              {
-                category: {
-                  contains: search,
-                },
-              },
-              {
-                model: {
-                  contains: search,
-                },
-              },
-              {
-                patterns: {
-                  contains: search,
-                },
-              },
-              {
-                metadata: {
-                  contains: search,
-                },
-              },
-            ],
-          }
-        : {}),
-    };
+      skip: (pageParam - 1) * limitParam,
+      take: limitParam,
+    });
 
-    const [prompts, totalItems] =
-      await Promise.all([
-        prisma.corpusPrompt.findMany({
-          where,
-          orderBy,
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        prisma.corpusPrompt.count({
-          where,
-        }),
-      ]);
-
-    const formatted = prompts.map((prompt) => {
-      let metadataObj: Record<string, unknown> = {};
-
+    const formatted = prompts.map((p) => {
+      let metadataObj = {};
       try {
-        metadataObj = prompt.metadata
-          ? JSON.parse(prompt.metadata)
-          : {};
-      } catch (error) {
-        console.error(
-          "Failed to parse Corpus metadata JSON:",
-          error,
-        );
+        metadataObj = p.metadata ? JSON.parse(p.metadata) : {};
+      } catch (e) {
+        console.error("Failed to parse metadata JSON", e);
       }
 
       let patternsList: string[] = [];
-
-      if (prompt.patterns) {
+      if (p.patterns) {
         try {
-          const parsedPatterns = JSON.parse(
-            prompt.patterns,
-          );
-
-          patternsList = Array.isArray(parsedPatterns)
-            ? parsedPatterns.filter(
-                (item): item is string =>
-                  typeof item === "string",
-              )
-            : prompt.patterns
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean);
+          patternsList = JSON.parse(p.patterns);
+          if (!Array.isArray(patternsList)) {
+            patternsList = p.patterns.split(",").map((s) => s.trim()).filter(Boolean);
+          }
         } catch {
-          patternsList = prompt.patterns
-            .split(",")
-            .map((item) => item.trim())
-            .filter(Boolean);
+          patternsList = p.patterns.split(",").map((s) => s.trim()).filter(Boolean);
         }
       }
 
       return {
-        id: prompt.id,
-        title: prompt.title,
-        prompt: prompt.prompt,
-        improvedVersion:
-          prompt.improvedVersion || "",
-        category: prompt.category,
-        model: prompt.model,
-        qualityScore: prompt.qualityScore,
+        id: p.id,
+        title: p.title,
+        prompt: p.prompt,
+        improvedVersion: p.improvedVersion || "",
+        category: p.category,
+        model: p.model,
+        qualityScore: p.qualityScore,
         patterns: patternsList,
         metadata: metadataObj,
-        isArchived: prompt.isArchived,
-        version: prompt.version,
-        createdAt:
-          prompt.createdAt.toISOString(),
-        updatedAt:
-          prompt.updatedAt.toISOString(),
+        isArchived: p.isArchived,
+        version: p.version,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
       };
     });
+
+    const totalPages = Math.ceil(totalItems / limitParam);
 
     return NextResponse.json({
       success: true,
       items: formatted,
-      filters: {
-        search,
-        category: category || null,
-        model: model || null,
-        minQuality,
-        archived: showArchived,
-        sort,
-      },
       pagination: {
-        page,
-        limit,
-        totalItems,
-        totalPages:
-          totalItems === 0
-            ? 0
-            : Math.ceil(totalItems / limit),
-        hasNextPage:
-          page * limit < totalItems,
-        hasPreviousPage:
-          page > 1,
+        total: totalItems,
+        page: pageParam,
+        limit: limitParam,
+        totalPages,
+        hasMore: pageParam < totalPages,
+      },
+      filters: {
+        search: searchQuery,
+        category: categoryParam || "All",
+        model: modelParam || "All",
+        minScore: minScoreParam ? Number(minScoreParam) : 0,
+        archived: archivedParam || "false",
+        sortBy: sortByField,
+        sortOrder: sortOrderParam,
       },
     });
   } catch (error) {
     console.error("Corpus GET error:", error);
-
-    const message =
-      error instanceof Error
-        ? error.message
-        : String(error);
-
+    const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Failed to fetch corpus prompts: " +
-          message,
-      },
-      { status: 500 },
+      { success: false, error: "Failed to fetch corpus prompts: " + message },
+      { status: 500 }
     );
   }
 }
+
+// POST: Create a new Corpus prompt (Admin restricted)
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
@@ -297,7 +194,7 @@ export async function POST(request: Request) {
 
     const patternsString = Array.isArray(patterns) ? JSON.stringify(patterns) : patterns || "[]";
     const metadataObj = typeof metadata === "object" ? (metadata || {}) : {};
-    
+
     if (!metadataObj.approvedDate) {
       metadataObj.approvedDate = new Date().toISOString();
     }
@@ -332,6 +229,7 @@ export async function POST(request: Request) {
   }
 }
 
+// PUT: Full update with version increment & history logging (Admin restricted)
 export async function PUT(request: Request) {
   try {
     const cookieStore = await cookies();
@@ -344,7 +242,7 @@ export async function PUT(request: Request) {
       );
     }
     const body = await request.json();
-    const { id, title, prompt, improvedVersion, category, model, qualityScore, patterns, metadata, isArchived } = body;
+    const { id, title, prompt, improvedVersion, category, model, qualityScore, patterns, metadata, isArchived, changeNote } = body;
 
     if (!id || !title || !prompt) {
       return NextResponse.json(
@@ -370,6 +268,7 @@ export async function PUT(request: Request) {
         prompt: string;
         improvedVersion: string;
         updatedAt: Date | string;
+        changeNote?: string;
       }>;
       version?: number;
       [key: string]: unknown;
@@ -389,12 +288,13 @@ export async function PUT(request: Request) {
       const history = Array.isArray(existingMetadata.versionHistory) ? existingMetadata.versionHistory : [];
       const currentVersion = currentPrompt.version;
 
-      // Log previous version
+      // Log previous version in versionHistory array
       history.push({
         version: currentVersion,
         prompt: currentPrompt.prompt,
         improvedVersion: currentPrompt.improvedVersion || "",
         updatedAt: currentPrompt.updatedAt || new Date(),
+        changeNote: changeNote || "Updated prompt structure and content.",
       });
 
       existingMetadata.versionHistory = history;
@@ -442,6 +342,54 @@ export async function PUT(request: Request) {
   }
 }
 
+// PATCH: Quick archive / unarchive or status toggle (Admin restricted)
+export async function PATCH(request: Request) {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("wordsly_session")?.value || "";
+    const session = verifyToken(token);
+    if (!session || session.role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Admin privileges required." },
+        { status: 403 }
+      );
+    }
+    const body = await request.json();
+    const { id, isArchived, qualityScore, category } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: "ID parameter is required." },
+        { status: 400 }
+      );
+    }
+
+    const updateData: any = {};
+    if (isArchived !== undefined) updateData.isArchived = Boolean(isArchived);
+    if (qualityScore !== undefined) updateData.qualityScore = Number(qualityScore);
+    if (category !== undefined) updateData.category = category;
+
+    const updated = await prisma.corpusPrompt.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return NextResponse.json({
+      success: true,
+      item: updated,
+      message: `Corpus prompt ${updated.isArchived ? "archived" : "unarchived"} successfully.`,
+    });
+  } catch (error) {
+    console.error("Corpus PATCH error:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      { success: false, error: "Failed to patch corpus prompt: " + message },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE: Delete Corpus prompt (Admin restricted)
 export async function DELETE(request: Request) {
   try {
     const cookieStore = await cookies();
