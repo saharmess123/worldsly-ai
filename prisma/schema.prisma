@@ -77,8 +77,8 @@ model Feedback {
   engineStatus   String   @default("mock_api")
   createdAt      DateTime @default(now())
 
-  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  optimization Optimization? @relation(fields: [optimizationId], references: [id], onDelete: SetNull)
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  optimization      Optimization?      @relation(fields: [optimizationId], references: [id], onDelete: SetNull)
   evaluationResults EvaluationResult[]
 
   @@index([userId])
@@ -219,8 +219,8 @@ model CorpusPrompt {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  discoveredPrompt DiscoveredPrompt? @relation(fields: [discoveredPromptId], references: [id], onDelete: SetNull)
-  trainingSignals  TrainingSignal[]
+  discoveredPrompt  DiscoveredPrompt?  @relation(fields: [discoveredPromptId], references: [id], onDelete: SetNull)
+  trainingSignals   TrainingSignal[]
   evaluationResults EvaluationResult[]
 
   @@index([category])
@@ -297,7 +297,7 @@ model EvaluationRun {
 }
 
 model EvaluationResult {
-  id                     String         @id @default(cuid())
+  id                     String   @id @default(cuid())
   evaluationRunId        String
   corpusPromptId         String?
   feedbackId             String?
@@ -307,23 +307,73 @@ model EvaluationResult {
   calculatedScore        Int
   scoreDeviation         Int
   scoringMode            String
-  clarityTarget          Int            @default(0)
-  clarityCalculated      Int            @default(0)
-  specificityTarget      Int            @default(0)
-  specificityCalculated  Int            @default(0)
-  contextTarget          Int            @default(0)
-  contextCalculated      Int            @default(0)
-  constraintsTarget      Int            @default(0)
-  constraintsCalculated  Int            @default(0)
-  outputFormatTarget     Int            @default(0)
-  outputFormatCalculated Int            @default(0)
-  createdAt              DateTime       @default(now())
+  clarityTarget          Int      @default(0)
+  clarityCalculated      Int      @default(0)
+  specificityTarget      Int      @default(0)
+  specificityCalculated  Int      @default(0)
+  contextTarget          Int      @default(0)
+  contextCalculated      Int      @default(0)
+  constraintsTarget      Int      @default(0)
+  constraintsCalculated  Int      @default(0)
+  outputFormatTarget     Int      @default(0)
+  outputFormatCalculated Int      @default(0)
+  createdAt              DateTime @default(now())
 
-  evaluationRun          EvaluationRun  @relation(fields: [evaluationRunId], references: [id], onDelete: Cascade)
-  corpusPrompt           CorpusPrompt?  @relation(fields: [corpusPromptId], references: [id], onDelete: SetNull)
-  feedback               Feedback?      @relation(fields: [feedbackId], references: [id], onDelete: SetNull)
+  evaluationRun EvaluationRun @relation(fields: [evaluationRunId], references: [id], onDelete: Cascade)
+  corpusPrompt  CorpusPrompt? @relation(fields: [corpusPromptId], references: [id], onDelete: SetNull)
+  feedback      Feedback?     @relation(fields: [feedbackId], references: [id], onDelete: SetNull)
 
   @@index([evaluationRunId])
   @@index([corpusPromptId])
   @@index([feedbackId])
+}
+
+model ProviderBenchmarkRun {
+  id              String                    @id @default(cuid())
+  status          String                    @default("running")
+  datasetVersion  String                    @default("v1")
+  testedProviders Int
+  testCaseCount   Int
+  timeoutMs       Int
+  maxRetries      Int
+  fallbackEnabled Boolean                   @default(false)
+  startedAt       DateTime                  @default(now())
+  completedAt     DateTime?
+  results         ProviderBenchmarkResult[]
+
+  @@index([status])
+  @@index([startedAt])
+}
+
+model ProviderBenchmarkResult {
+  id               String   @id @default(cuid())
+  benchmarkRunId   String
+  testCaseId       String
+  promptTitle      String
+  category         String
+  provider         String
+  resolvedProvider String
+  fallbackProvider String?
+  model            String
+  success          Boolean
+  usedFallback     Boolean  @default(false)
+  retryUsed        Boolean  @default(false)
+  attemptCount     Int      @default(1)
+  latencyMs        Int
+  qualityScore     Int      @default(0)
+  outputLength     Int      @default(0)
+  outputExcerpt    String?
+  error            String?
+  errorType        String?
+  estimatedCostUsd Float?
+  createdAt        DateTime @default(now())
+
+  benchmarkRun ProviderBenchmarkRun @relation(fields: [benchmarkRunId], references: [id], onDelete: Cascade)
+
+  @@index([benchmarkRunId])
+  @@index([provider])
+  @@index([success])
+  @@index([errorType])
+  @@index([qualityScore])
+  @@index([createdAt])
 }

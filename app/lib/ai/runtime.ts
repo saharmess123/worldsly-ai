@@ -20,11 +20,28 @@ export interface AIRuntimeOptions {
   timeoutMs?: number;
   maxRetries?: number;
   retryDelayMs?: number;
+  operation?: string;
+}
+
+export interface AIRuntimeExecutionMetadata {
+  primaryProvider: AIProviderName;
+  resolvedProvider: AIProviderName;
+  fallbackProvider: AIProviderName | null;
+  usedFallback: boolean;
+  attemptCount: number;
+  retryUsed: boolean;
+  latencyMs: number;
+}
+
+export interface AIRuntimeResult {
+  response: AIResponse;
+  metadata: AIRuntimeExecutionMetadata;
 }
 
 interface ProviderExecutionResult {
   response: AIResponse;
   attemptCount: number;
+  totalLatencyMs: number;
 }
 
 function isAIProviderName(
@@ -174,6 +191,7 @@ async function executeProviderWithRetry(
   maxRetries: number,
   retryDelayMs: number,
 ): Promise<ProviderExecutionResult> {
+  const executionStartedAt = Date.now();
   let lastResponse: AIResponse | null = null;
 
   for (
@@ -202,6 +220,8 @@ async function executeProviderWithRetry(
         return {
           response,
           attemptCount: attempt + 1,
+          totalLatencyMs:
+            Date.now() - executionStartedAt,
         };
       }
     } catch (error) {
@@ -231,13 +251,15 @@ async function executeProviderWithRetry(
         error: `${provider.name} request failed.`,
       },
     attemptCount: maxRetries + 1,
+    totalLatencyMs:
+      Date.now() - executionStartedAt,
   };
 }
 
-export async function generateWithAIRuntime(
+export async function generateWithAIRuntimeDetailed(
   request: AIRequest,
   options: AIRuntimeOptions = {},
-): Promise<AIResponse> {
+): Promise<AIRuntimeResult> {
   const providerName =
     options.providerName ??
     getConfiguredAIProviderName();
@@ -268,6 +290,9 @@ export async function generateWithAIRuntime(
     DEFAULT_RETRY_DELAY_MS,
   );
 
+  const operation =
+    options.operation?.trim() || undefined;
+
   const primaryProvider =
     createAIProvider(providerName);
 
@@ -284,38 +309,88 @@ export async function generateWithAIRuntime(
     primaryExecution.response;
 
   if (primaryResponse.success) {
-    await recordAIRuntimeEvent({
+    const metadata: AIRuntimeExecutionMetadata = {
       primaryProvider: providerName,
-      resolvedProvider: primaryResponse.provider,
-      fallbackProvider: fallbackProviderName,
+      resolvedProvider:
+        primaryResponse.provider,
+      fallbackProvider:
+        fallbackProviderName,
+      usedFallback: false,
+      attemptCount:
+        primaryExecution.attemptCount,
+      retryUsed:
+        primaryExecution.attemptCount > 1,
+      latencyMs:
+        primaryExecution.totalLatencyMs,
+    };
+
+    await recordAIRuntimeEvent({
+      operation,
+      primaryProvider:
+        metadata.primaryProvider,
+      resolvedProvider:
+        metadata.resolvedProvider,
+      fallbackProvider:
+        metadata.fallbackProvider,
       model: primaryResponse.model,
       success: true,
-      usedFallback: false,
-      attemptCount: primaryExecution.attemptCount,
-      latencyMs: primaryResponse.latencyMs,
+      usedFallback:
+        metadata.usedFallback,
+      attemptCount:
+        metadata.attemptCount,
+      latencyMs:
+        metadata.latencyMs,
       error: primaryResponse.error,
     });
 
-    return primaryResponse;
+    return {
+      response: primaryResponse,
+      metadata,
+    };
   }
 
   if (
     !fallbackProviderName ||
     fallbackProviderName === providerName
   ) {
-    await recordAIRuntimeEvent({
+    const metadata: AIRuntimeExecutionMetadata = {
       primaryProvider: providerName,
-      resolvedProvider: primaryResponse.provider,
-      fallbackProvider: fallbackProviderName,
+      resolvedProvider:
+        primaryResponse.provider,
+      fallbackProvider:
+        fallbackProviderName,
+      usedFallback: false,
+      attemptCount:
+        primaryExecution.attemptCount,
+      retryUsed:
+        primaryExecution.attemptCount > 1,
+      latencyMs:
+        primaryExecution.totalLatencyMs,
+    };
+
+    await recordAIRuntimeEvent({
+      operation,
+      primaryProvider:
+        metadata.primaryProvider,
+      resolvedProvider:
+        metadata.resolvedProvider,
+      fallbackProvider:
+        metadata.fallbackProvider,
       model: primaryResponse.model,
       success: false,
-      usedFallback: false,
-      attemptCount: primaryExecution.attemptCount,
-      latencyMs: primaryResponse.latencyMs,
+      usedFallback:
+        metadata.usedFallback,
+      attemptCount:
+        metadata.attemptCount,
+      latencyMs:
+        metadata.latencyMs,
       error: primaryResponse.error,
     });
 
-    return primaryResponse;
+    return {
+      response: primaryResponse,
+      metadata,
+    };
   }
 
   const fallbackProvider = createAIProvider(
@@ -346,23 +421,60 @@ export async function generateWithAIRuntime(
       ? fallbackResponse
       : primaryResponse;
 
-  await recordAIRuntimeEvent({
+  const metadata: AIRuntimeExecutionMetadata = {
     primaryProvider: providerName,
-    resolvedProvider: resolvedResponse.provider,
-    fallbackProvider: fallbackProviderName,
-    model: resolvedResponse.model,
-    success: resolvedResponse.success,
+    resolvedProvider:
+      resolvedResponse.provider,
+    fallbackProvider:
+      fallbackProviderName,
     usedFallback: true,
     attemptCount:
       primaryExecution.attemptCount +
       fallbackExecution.attemptCount,
+    retryUsed:
+      primaryExecution.attemptCount > 1 ||
+      fallbackExecution.attemptCount > 1,
     latencyMs:
-      primaryResponse.latencyMs +
-      fallbackResponse.latencyMs,
+      primaryExecution.totalLatencyMs +
+      fallbackExecution.totalLatencyMs,
+  };
+
+  await recordAIRuntimeEvent({
+    operation,
+    primaryProvider:
+      metadata.primaryProvider,
+    resolvedProvider:
+      metadata.resolvedProvider,
+    fallbackProvider:
+      metadata.fallbackProvider,
+    model: resolvedResponse.model,
+    success: resolvedResponse.success,
+    usedFallback:
+      metadata.usedFallback,
+    attemptCount:
+      metadata.attemptCount,
+    latencyMs:
+      metadata.latencyMs,
     error:
       resolvedResponse.error ??
       fallbackResponse.error,
   });
 
-  return resolvedResponse;
+  return {
+    response: resolvedResponse,
+    metadata,
+  };
+}
+
+export async function generateWithAIRuntime(
+  request: AIRequest,
+  options: AIRuntimeOptions = {},
+): Promise<AIResponse> {
+  const result =
+    await generateWithAIRuntimeDetailed(
+      request,
+      options,
+    );
+
+  return result.response;
 }
