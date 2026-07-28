@@ -18,6 +18,9 @@ type EvaluationItem = {
   prompt: string;
   targetScore: number;
   targetBreakdown: ScoreBreakdown;
+  difficulty: "Low" | "Medium" | "High";
+  criteria: string[];
+  notes: string;
 };
 
 // Repeatable Golden Evaluation Dataset
@@ -35,6 +38,13 @@ const evaluationDataset: EvaluationItem[] = [
       constraints: 5,
       outputFormat: 5,
     },
+    difficulty: "Low",
+    criteria: [
+      "Only specifies a brief request",
+      "No programming language version or environment details",
+      "No custom features, styling, or error handling mentioned"
+    ],
+    notes: "Extremely vague prompt that forces the AI to make a large number of layout and framework assumptions."
   },
   {
     id: "eval-02",
@@ -49,6 +59,13 @@ const evaluationDataset: EvaluationItem[] = [
       constraints: 11,
       outputFormat: 11,
     },
+    difficulty: "Medium",
+    criteria: [
+      "Specifies product category (fitness app)",
+      "Identifies target demographic (busy professionals)",
+      "Lacks specific brand constraints, channel selections, or copy length limitations"
+    ],
+    notes: "A decent high-level campaign template, but lacks explicit guardrails, platforms, and formatting rules."
   },
   {
     id: "eval-03",
@@ -63,6 +80,13 @@ const evaluationDataset: EvaluationItem[] = [
       constraints: 18,
       outputFormat: 18,
     },
+    difficulty: "High",
+    criteria: [
+      "Assigns a clear role (senior security specialist)",
+      "Gives precise context about function environment",
+      "Lists distinct numbered rules and structural formatting rules"
+    ],
+    notes: "Highly optimized prompt. Provides comprehensive guidance, structured output keys, and removes ambiguity."
   },
   {
     id: "eval-04",
@@ -77,6 +101,13 @@ const evaluationDataset: EvaluationItem[] = [
       constraints: 6,
       outputFormat: 6,
     },
+    difficulty: "Low",
+    criteria: [
+      "Extremely short description",
+      "Lacks medium, art style, camera angle, and aspect ratio details",
+      "No color palette or lighting parameters specified"
+    ],
+    notes: "Vague text. Will result in highly unpredictable images depending on the generative model seed."
   },
   {
     id: "eval-05",
@@ -91,7 +122,77 @@ const evaluationDataset: EvaluationItem[] = [
       constraints: 18,
       outputFormat: 18,
     },
+    difficulty: "High",
+    criteria: [
+      "Clearly describes subject and cinematic cyberpunk alley background",
+      "Specifies precise lighting and camera lens details (35mm, neon reflections)",
+      "Employs negative prompt guidelines to exclude blur and low quality"
+    ],
+    notes: "High quality prompt. Captures style, camera perspective, lighting, and negative exclusions for professional image gen."
   },
+  {
+    id: "eval-06",
+    title: "Vague General Request (Low Quality)",
+    category: "General",
+    prompt: "make a presentation about space",
+    targetScore: 22,
+    targetBreakdown: {
+      clarity: 6,
+      specificity: 4,
+      context: 4,
+      constraints: 4,
+      outputFormat: 4,
+    },
+    difficulty: "Low",
+    criteria: [
+      "Extremely brief single sentence",
+      "No audience, depth, or formatting guidelines",
+      "Lacks slide-by-slide structure rules"
+    ],
+    notes: "Requires the model to guess everything. Lacks purpose, context, and structural limits."
+  },
+  {
+    id: "eval-07",
+    title: "Structured Academic Summary (Medium Quality)",
+    category: "Research",
+    prompt: "Summarize the attached research paper on artificial neural networks. The summary should focus on the history, architectures, and main challenges. Keep it accurate and neutral.",
+    targetScore: 68,
+    targetBreakdown: {
+      clarity: 15,
+      specificity: 13,
+      context: 14,
+      constraints: 13,
+      outputFormat: 13,
+    },
+    difficulty: "Medium",
+    criteria: [
+      "States task goal (summarize a research paper)",
+      "Outlines the primary summary focus points (history, architecture, challenges)",
+      "Lacks specific constraints on length, key terms, or section structures"
+    ],
+    notes: "Clear objectives, but benefits from layout rules, target word counts, and language rules."
+  },
+  {
+    id: "eval-08",
+    title: "Autonomous Agent Workflow (High Quality)",
+    category: "Agents",
+    prompt: "You are an autonomous customer support agent. Your goal is to resolve billing complaints. Available tools: search_invoices(id), refund_transaction(id). Process: 1. Fetch the invoice history. 2. Verify the charge date. 3. If within 30 days, refund the transaction. Otherwise, explain the policy. Rules: NEVER refund more than $100. Format the response as JSON with keys 'action_taken' and 'response_text'.",
+    targetScore: 95,
+    targetBreakdown: {
+      clarity: 20,
+      specificity: 19,
+      context: 19,
+      constraints: 19,
+      outputFormat: 18,
+    },
+    difficulty: "High",
+    criteria: [
+      "Specifies precise role and list of available tools",
+      "Enforces a rigid step-by-step logic workflow",
+      "Defines clear boundary rules ($100 cap) and strict JSON output schema formatting"
+    ],
+    notes: "Outstanding systems engineering prompt. Leaves zero room for model deviation and ensures predictable JSON returns."
+  }
 ];
 
 export async function POST(request: Request) {

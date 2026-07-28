@@ -526,20 +526,18 @@ export async function GET() {
       endToEndConversionRate,
 
       totals: {
-        optimizations:
-          totalOptimizations,
-        feedback:
-          totalFeedback,
-        sources:
-          totalSources,
-        discovery:
-          totalDiscoveredPrompts,
-        pendingReviews:
-          pendingReviewCount,
-        corpus:
-          totalCorpusPrompts,
-        trainingSignals:
-          totalTrainingSignals,
+        optimizations: totalOptimizations,
+        totalOptimizations,
+        feedback: totalFeedback,
+        totalFeedback,
+        usefulFeedback,
+        needsWorkFeedback,
+        usefulRate,
+        sources: totalSources,
+        discovery: totalDiscoveredPrompts,
+        pendingReviews: pendingReviewCount,
+        corpus: totalCorpusPrompts,
+        trainingSignals: totalTrainingSignals,
       },
 
       scores: {

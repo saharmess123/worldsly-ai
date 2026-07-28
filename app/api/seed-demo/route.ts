@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { internalServerError } from "../../lib/api-response";
+import { forbidden, internalServerError } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 
 const demoSources = [
@@ -96,97 +96,119 @@ const demoOptimizations = [
 ];
 
 async function handleSeed() {
+  // Guard 1: Keep production data separate and prevent seeding in production
+  if (process.env.NODE_ENV === "production") {
+    return forbidden("Database seeding is disabled in production environments to protect live data.");
+  }
+
   try {
-    await prisma.feedback.deleteMany();
-    await prisma.optimization.deleteMany();
-    await prisma.trainingSignal.deleteMany();
-    await prisma.corpusPrompt.deleteMany();
-    await prisma.curationReview.deleteMany();
-    await prisma.discoveredPrompt.deleteMany();
-    await prisma.source.deleteMany();
-    await prisma.evaluationResult.deleteMany();
-    await prisma.evaluationRun.deleteMany();
+    let createdSources = 0;
+    let createdDiscovered = 0;
+    let createdCorpus = 0;
+    let createdOptimizations = 0;
 
+    // 1. Guarded seeding for Sources: upsert to prevent duplicates
     for (const source of demoSources) {
-      await prisma.source.create({
-        data: source,
+      await prisma.source.upsert({
+        where: { id: source.id },
+        update: {
+          name: source.name,
+          type: source.type,
+          credibilityScore: source.credibilityScore,
+        },
+        create: source,
       });
+      createdSources++;
     }
 
+    // 2. Guarded seeding for Discovered Prompts: check if already exists by title
     for (const discoveredPrompt of demoDiscovered) {
-      await prisma.discoveredPrompt.create({
-        data: discoveredPrompt,
+      const existing = await prisma.discoveredPrompt.findFirst({
+        where: {
+          title: discoveredPrompt.title,
+          prompt: discoveredPrompt.prompt,
+        },
       });
+
+      if (!existing) {
+        await prisma.discoveredPrompt.create({
+          data: discoveredPrompt,
+        });
+        createdDiscovered++;
+      }
     }
 
+    // 3. Guarded seeding for Corpus Prompts: check if already exists by title
     for (const corpusPrompt of demoCorpus) {
-      await prisma.corpusPrompt.create({
-        data: corpusPrompt,
+      const existing = await prisma.corpusPrompt.findFirst({
+        where: {
+          title: corpusPrompt.title,
+        },
       });
+
+      if (!existing) {
+        await prisma.corpusPrompt.create({
+          data: corpusPrompt,
+        });
+        createdCorpus++;
+      }
     }
 
+    // 4. Guarded seeding for Optimizations & Feedback: check if already exists
     for (const record of demoOptimizations) {
-      const optimization =
-        await prisma.optimization.create({
+      const existing = await prisma.optimization.findFirst({
+        where: {
+          originalPrompt: record.originalPrompt,
+        },
+      });
+
+      if (!existing) {
+        const optimization = await prisma.optimization.create({
           data: {
-            originalPrompt:
-              record.originalPrompt,
-            improvedPrompt:
-              record.improvedPrompt,
+            originalPrompt: record.originalPrompt,
+            improvedPrompt: record.improvedPrompt,
             category: record.category,
             model: record.model,
             goal: record.goal,
             depth: record.depth,
-            outputFormat:
-              record.outputFormat,
-            originalScore:
-              record.originalScore,
-            improvedScore:
-              record.improvedScore,
-            engineStatus:
-              record.engineStatus,
+            outputFormat: record.outputFormat,
+            originalScore: record.originalScore,
+            improvedScore: record.improvedScore,
+            engineStatus: record.engineStatus,
           },
         });
 
-      await prisma.feedback.create({
-        data: {
-          optimizationId: optimization.id,
-          rating: "useful",
-          originalPrompt:
-            record.originalPrompt,
-          improvedPrompt:
-            record.improvedPrompt,
-          category: record.category,
-          model: record.model,
-          goal: record.goal,
-          depth: record.depth,
-          outputFormat:
-            record.outputFormat,
-          engineStatus:
-            record.engineStatus,
-        },
-      });
+        await prisma.feedback.create({
+          data: {
+            optimizationId: optimization.id,
+            rating: "useful",
+            originalPrompt: record.originalPrompt,
+            improvedPrompt: record.improvedPrompt,
+            category: record.category,
+            model: record.model,
+            goal: record.goal,
+            depth: record.depth,
+            outputFormat: record.outputFormat,
+            engineStatus: record.engineStatus,
+          },
+        });
+        createdOptimizations++;
+      }
     }
 
     return NextResponse.json({
       success: true,
-      message:
-        "Database seeded with rich demo playground successfully.",
+      message: "Database seeded or synchronized successfully. Existing records preserved.",
       seeded: {
-        sources: demoSources.length,
-        discovered:
-          demoDiscovered.length,
-        corpus: demoCorpus.length,
-        optimizations:
-          demoOptimizations.length,
+        sources: createdSources,
+        discovered: createdDiscovered,
+        corpus: createdCorpus,
+        optimizations: createdOptimizations,
       },
     });
   } catch (error) {
     console.error("Seeding error:", error);
-
-    return internalServerError(
-      "Something went wrong while seeding the demo database.",
-    );
+    return internalServerError("Something went wrong while seeding the demo database.");
   }
 }
 
@@ -199,6 +221,11 @@ export async function POST() {
 }
 
 export async function DELETE() {
+  // Guard 2: Prevent clearing DB in production
+  if (process.env.NODE_ENV === "production") {
+    return forbidden("Database clearing is disabled in production environments.");
+  }
+
   try {
     await prisma.feedback.deleteMany();
     await prisma.optimization.deleteMany();

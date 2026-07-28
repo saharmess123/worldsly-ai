@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
 import {
   apiError,
@@ -37,21 +38,16 @@ export async function GET() {
       );
     }
 
-    return apiSuccess(
-      {
-        user: {
-          id: decoded.userId,
-          email: decoded.email,
-          role: decoded.role,
-          name: decoded.name,
-        },
+    return NextResponse.json({
+      success: true,
+      authenticated: true,
+      user: {
+        id: decoded.userId,
+        email: decoded.email,
+        role: decoded.role,
+        name: decoded.name,
       },
-      {
-        extra: {
-          authenticated: true,
-        },
-      }
-    );
+    });
   } catch (error) {
     console.error(
       "Auth me error:",
