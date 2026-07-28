@@ -377,3 +377,55 @@ model ProviderBenchmarkResult {
   @@index([qualityScore])
   @@index([createdAt])
 }
+
+model AIRuntimeDailyAggregate {
+  id               String   @id @default(cuid())
+  bucketStart      DateTime
+  operation        String
+  resolvedProvider String
+  model            String
+  success          Boolean
+  requestCount     Int      @default(0)
+  successCount     Int      @default(0)
+  failureCount     Int      @default(0)
+  fallbackCount    Int      @default(0)
+  errorCount       Int      @default(0)
+  totalAttempts    Int      @default(0)
+  totalLatencyMs   Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([bucketStart, operation, resolvedProvider, model, success])
+  @@index([bucketStart])
+  @@index([resolvedProvider])
+  @@index([operation])
+}
+
+model SourceScanDailyAggregate {
+  id                      String   @id @default(cuid())
+  bucketStart             DateTime
+  sourceId                String
+  sourceName              String
+  trigger                 String
+  status                  String
+  provider                String
+  scanCount               Int      @default(0)
+  completedCount          Int      @default(0)
+  failedCount             Int      @default(0)
+  runningCount            Int      @default(0)
+  createdPromptCount      Int      @default(0)
+  generatedPromptCount    Int      @default(0)
+  skippedDuplicateCount   Int      @default(0)
+  retrievedCharacterCount Int      @default(0)
+  totalDurationMs         Int      @default(0)
+  credibilityScoreTotal   Int      @default(0)
+  credibilityScoreCount   Int      @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([bucketStart, sourceId, trigger, status, provider])
+  @@index([bucketStart])
+  @@index([sourceId])
+  @@index([trigger])
+  @@index([provider])
+}

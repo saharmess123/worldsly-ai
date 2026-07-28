@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/source-scans",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/monitoring-retention",
+      "schedule": "0 6 * * *"
     }
   ]
 }

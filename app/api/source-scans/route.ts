@@ -19,6 +19,9 @@ const ALLOWED_TRIGGERS = [
   "scheduled",
 ] as const;
 
+const DEFAULT_RAW_RETENTION_DAYS = 30;
+const MAX_RAW_RETENTION_DAYS = 3650;
+
 function parseInteger(
   value: string | null,
   fallback: number,
@@ -38,6 +41,65 @@ function parseInteger(
   return Math.max(
     minimum,
     Math.min(maximum, parsed),
+  );
+}
+
+function parseEnvironmentInteger(
+  value: string | undefined,
+  fallback: number,
+  maximum: number,
+): number {
+  if (!value?.trim()) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1
+  ) {
+    return fallback;
+  }
+
+  return Math.min(parsed, maximum);
+}
+
+function startOfUtcDay(value: Date): Date {
+  return new Date(
+    Date.UTC(
+      value.getUTCFullYear(),
+      value.getUTCMonth(),
+      value.getUTCDate(),
+    ),
+  );
+}
+
+function startOfNextCompleteUtcDay(
+  value: Date,
+): Date {
+  const dayStart = startOfUtcDay(value);
+
+  if (
+    dayStart.getTime() ===
+    value.getTime()
+  ) {
+    return dayStart;
+  }
+
+  return new Date(
+    dayStart.getTime() +
+      24 * 60 * 60 * 1000,
+  );
+}
+
+function subtractDays(
+  value: Date,
+  days: number,
+): Date {
+  return new Date(
+    value.getTime() -
+      days * 24 * 60 * 60 * 1000,
   );
 }
 
@@ -143,14 +205,73 @@ export async function GET(
       );
     }
 
+    const now = new Date();
+
     const since = new Date(
-      Date.now() -
+      now.getTime() -
         hours * 60 * 60 * 1000,
     );
 
-    const where: Prisma.SourceScanEventWhereInput = {
-      startedAt: {
-        gte: since,
+    const rawRetentionDays =
+      parseEnvironmentInteger(
+        process.env
+          .MONITORING_RAW_RETENTION_DAYS,
+        DEFAULT_RAW_RETENTION_DAYS,
+        MAX_RAW_RETENTION_DAYS,
+      );
+
+    const rawCutoff =
+      startOfUtcDay(
+        subtractDays(
+          now,
+          rawRetentionDays,
+        ),
+      );
+
+    const rawSince =
+      since > rawCutoff
+        ? since
+        : rawCutoff;
+
+    const aggregateSince =
+      startOfNextCompleteUtcDay(since);
+
+    const rawWhere: Prisma.SourceScanEventWhereInput = {
+      OR: [
+        {
+          startedAt: {
+            gte: rawSince,
+          },
+        },
+        {
+          startedAt: {
+            gte: since,
+            lt: rawCutoff,
+          },
+          status: "running",
+        },
+      ],
+      ...(sourceId
+        ? {
+            sourceId,
+          }
+        : {}),
+      ...(status
+        ? {
+            status,
+          }
+        : {}),
+      ...(trigger
+        ? {
+            trigger,
+          }
+        : {}),
+    };
+
+    const aggregateWhere: Prisma.SourceScanDailyAggregateWhereInput = {
+      bucketStart: {
+        gte: aggregateSince,
+        lt: rawCutoff,
       },
       ...(sourceId
         ? {
@@ -171,12 +292,17 @@ export async function GET(
 
     const [
       events,
-      totalCount,
-      aggregate,
-      sourceBreakdown,
+      rawTotalCount,
+      rawTotals,
+      rawStatusGroups,
+      rawTriggerGroups,
+      rawSourceGroups,
+      aggregateTotals,
+      aggregateTriggerGroups,
+      aggregateSourceGroups,
     ] = await Promise.all([
       prisma.sourceScanEvent.findMany({
-        where,
+        where: rawWhere,
         include: {
           source: {
             select: {
@@ -193,10 +319,10 @@ export async function GET(
         take: limit,
       }),
       prisma.sourceScanEvent.count({
-        where,
+        where: rawWhere,
       }),
       prisma.sourceScanEvent.aggregate({
-        where,
+        where: rawWhere,
         _sum: {
           createdCount: true,
           generatedCount: true,
@@ -204,8 +330,19 @@ export async function GET(
           retrievedCharacterCount: true,
           durationMs: true,
         },
-        _avg: {
-          durationMs: true,
+      }),
+      prisma.sourceScanEvent.groupBy({
+        by: ["status"],
+        where: rawWhere,
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.sourceScanEvent.groupBy({
+        by: ["trigger"],
+        where: rawWhere,
+        _count: {
+          _all: true,
         },
       }),
       prisma.sourceScanEvent.groupBy({
@@ -213,7 +350,7 @@ export async function GET(
           "sourceId",
           "status",
         ],
-        where,
+        where: rawWhere,
         _count: {
           _all: true,
         },
@@ -221,37 +358,111 @@ export async function GET(
           createdCount: true,
         },
       }),
+      prisma.sourceScanDailyAggregate.aggregate({
+        where: aggregateWhere,
+        _sum: {
+          scanCount: true,
+          completedCount: true,
+          failedCount: true,
+          runningCount: true,
+          createdPromptCount: true,
+          generatedPromptCount: true,
+          skippedDuplicateCount: true,
+          retrievedCharacterCount: true,
+          totalDurationMs: true,
+        },
+      }),
+      prisma.sourceScanDailyAggregate.groupBy({
+        by: ["trigger"],
+        where: aggregateWhere,
+        _sum: {
+          scanCount: true,
+        },
+      }),
+      prisma.sourceScanDailyAggregate.groupBy({
+        by: [
+          "sourceId",
+          "status",
+        ],
+        where: aggregateWhere,
+        _sum: {
+          scanCount: true,
+          createdPromptCount: true,
+        },
+      }),
     ]);
 
+    const aggregateTotalCount =
+      aggregateTotals._sum.scanCount || 0;
+
+    const totalCount =
+      rawTotalCount +
+      aggregateTotalCount;
+
+    const rawCompletedCount =
+      rawStatusGroups.find(
+        (group) =>
+          group.status === "completed",
+      )?._count._all || 0;
+
+    const rawFailedCount =
+      rawStatusGroups.find(
+        (group) =>
+          group.status === "failed",
+      )?._count._all || 0;
+
+    const rawRunningCount =
+      rawStatusGroups.find(
+        (group) =>
+          group.status === "running",
+      )?._count._all || 0;
+
     const completedCount =
-      events.filter(
-        (event) =>
-          event.status === "completed",
-      ).length;
+      rawCompletedCount +
+      (aggregateTotals._sum
+        .completedCount || 0);
 
     const failedCount =
-      events.filter(
-        (event) =>
-          event.status === "failed",
-      ).length;
+      rawFailedCount +
+      (aggregateTotals._sum
+        .failedCount || 0);
 
     const runningCount =
-      events.filter(
-        (event) =>
-          event.status === "running",
-      ).length;
+      rawRunningCount +
+      (aggregateTotals._sum
+        .runningCount || 0);
+
+    const rawManualCount =
+      rawTriggerGroups.find(
+        (group) =>
+          group.trigger === "manual",
+      )?._count._all || 0;
+
+    const rawScheduledCount =
+      rawTriggerGroups.find(
+        (group) =>
+          group.trigger === "scheduled",
+      )?._count._all || 0;
+
+    const aggregateManualCount =
+      aggregateTriggerGroups.find(
+        (group) =>
+          group.trigger === "manual",
+      )?._sum.scanCount || 0;
+
+    const aggregateScheduledCount =
+      aggregateTriggerGroups.find(
+        (group) =>
+          group.trigger === "scheduled",
+      )?._sum.scanCount || 0;
 
     const manualCount =
-      events.filter(
-        (event) =>
-          event.trigger === "manual",
-      ).length;
+      rawManualCount +
+      aggregateManualCount;
 
     const scheduledCount =
-      events.filter(
-        (event) =>
-          event.trigger === "scheduled",
-      ).length;
+      rawScheduledCount +
+      aggregateScheduledCount;
 
     const successRate =
       completedCount + failedCount === 0
@@ -261,6 +472,126 @@ export async function GET(
               (completedCount + failedCount)) *
               100,
           );
+
+    const totalCreatedPrompts =
+      (rawTotals._sum.createdCount || 0) +
+      (aggregateTotals._sum
+        .createdPromptCount || 0);
+
+    const totalGeneratedPrompts =
+      (rawTotals._sum.generatedCount || 0) +
+      (aggregateTotals._sum
+        .generatedPromptCount || 0);
+
+    const totalSkippedDuplicates =
+      (rawTotals._sum
+        .skippedDuplicateCount || 0) +
+      (aggregateTotals._sum
+        .skippedDuplicateCount || 0);
+
+    const totalRetrievedCharacters =
+      (rawTotals._sum
+        .retrievedCharacterCount || 0) +
+      (aggregateTotals._sum
+        .retrievedCharacterCount || 0);
+
+    const totalDurationMs =
+      (rawTotals._sum.durationMs || 0) +
+      (aggregateTotals._sum
+        .totalDurationMs || 0);
+
+    const averageDurationMs =
+      totalCount === 0
+        ? 0
+        : Math.round(
+            totalDurationMs /
+              totalCount,
+          );
+
+    const sourceBreakdownMap =
+      new Map<
+        string,
+        {
+          sourceId: string;
+          status: string;
+          count: number;
+          createdCount: number;
+        }
+      >();
+
+    for (const group of rawSourceGroups) {
+      const key = [
+        group.sourceId,
+        group.status,
+      ].join("::");
+
+      sourceBreakdownMap.set(key, {
+        sourceId: group.sourceId,
+        status: group.status,
+        count:
+          group._count._all,
+        createdCount:
+          group._sum.createdCount || 0,
+      });
+    }
+
+    for (
+      const group of aggregateSourceGroups
+    ) {
+      const key = [
+        group.sourceId,
+        group.status,
+      ].join("::");
+
+      const existing =
+        sourceBreakdownMap.get(key);
+
+      if (existing) {
+        existing.count +=
+          group._sum.scanCount || 0;
+
+        existing.createdCount +=
+          group._sum
+            .createdPromptCount || 0;
+
+        continue;
+      }
+
+      sourceBreakdownMap.set(key, {
+        sourceId: group.sourceId,
+        status: group.status,
+        count:
+          group._sum.scanCount || 0,
+        createdCount:
+          group._sum
+            .createdPromptCount || 0,
+      });
+    }
+
+    const sourceBreakdown =
+      Array.from(
+        sourceBreakdownMap.values(),
+      )
+        .sort(
+          (first, second) =>
+            first.sourceId.localeCompare(
+              second.sourceId,
+            ) ||
+            first.status.localeCompare(
+              second.status,
+            ),
+        )
+        .map((group) => ({
+          sourceId: group.sourceId,
+          status: group.status,
+          _count: {
+            _all: group.count,
+          },
+          _sum: {
+            createdCount:
+              group.createdCount,
+          },
+        }));
 
     return NextResponse.json({
       success: true,
@@ -273,9 +604,20 @@ export async function GET(
           status || null,
         trigger:
           trigger || null,
+        since:
+          since.toISOString(),
+        rawRetentionDays,
+        rawCutoff:
+          rawCutoff.toISOString(),
+        aggregateSince:
+          aggregateSince.toISOString(),
       },
       summary: {
         totalCount,
+        rawCount:
+          rawTotalCount,
+        aggregatedCount:
+          aggregateTotalCount,
         returnedCount:
           events.length,
         completedCount,
@@ -284,22 +626,12 @@ export async function GET(
         manualCount,
         scheduledCount,
         successRate,
-        totalCreatedPrompts:
-          aggregate._sum.createdCount || 0,
-        totalGeneratedPrompts:
-          aggregate._sum.generatedCount || 0,
-        totalSkippedDuplicates:
-          aggregate._sum
-            .skippedDuplicateCount || 0,
-        totalRetrievedCharacters:
-          aggregate._sum
-            .retrievedCharacterCount || 0,
-        averageDurationMs:
-          Math.round(
-            aggregate._avg.durationMs || 0,
-          ),
-        totalDurationMs:
-          aggregate._sum.durationMs || 0,
+        totalCreatedPrompts,
+        totalGeneratedPrompts,
+        totalSkippedDuplicates,
+        totalRetrievedCharacters,
+        averageDurationMs,
+        totalDurationMs,
       },
       sourceBreakdown,
       events: events.map((event) => ({

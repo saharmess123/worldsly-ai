@@ -16,6 +16,8 @@ const PROVIDER_NAMES = [
   "openai",
 ] as const;
 
+const DEFAULT_RAW_RETENTION_DAYS = 30;
+const MAX_RAW_RETENTION_DAYS = 3650;
 const MAX_ERROR_SAMPLE_SIZE = 1000;
 
 type ProviderName =
@@ -66,6 +68,65 @@ function parseBoundedInteger(
   }
 
   return parsed;
+}
+
+function parseEnvironmentInteger(
+  value: string | undefined,
+  fallback: number,
+  maximum: number,
+): number {
+  if (!value?.trim()) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1
+  ) {
+    return fallback;
+  }
+
+  return Math.min(parsed, maximum);
+}
+
+function startOfUtcDay(value: Date): Date {
+  return new Date(
+    Date.UTC(
+      value.getUTCFullYear(),
+      value.getUTCMonth(),
+      value.getUTCDate(),
+    ),
+  );
+}
+
+function startOfNextCompleteUtcDay(
+  value: Date,
+): Date {
+  const dayStart = startOfUtcDay(value);
+
+  if (
+    dayStart.getTime() ===
+    value.getTime()
+  ) {
+    return dayStart;
+  }
+
+  return new Date(
+    dayStart.getTime() +
+      24 * 60 * 60 * 1000,
+  );
+}
+
+function subtractDays(
+  value: Date,
+  days: number,
+): Date {
+  return new Date(
+    value.getTime() -
+      days * 24 * 60 * 60 * 1000,
+  );
 }
 
 function isProviderName(
@@ -187,14 +248,66 @@ export async function GET(
         ?.trim()
         .slice(0, 100) || "";
 
+    const now = new Date();
+
     const since = new Date(
-      Date.now() -
+      now.getTime() -
         hours * 60 * 60 * 1000,
     );
 
-    const where: Prisma.AIRuntimeEventWhereInput = {
+    const rawRetentionDays =
+      parseEnvironmentInteger(
+        process.env
+          .MONITORING_RAW_RETENTION_DAYS,
+        DEFAULT_RAW_RETENTION_DAYS,
+        MAX_RAW_RETENTION_DAYS,
+      );
+
+    const rawCutoff =
+      startOfUtcDay(
+        subtractDays(
+          now,
+          rawRetentionDays,
+        ),
+      );
+
+    const rawSince =
+      since > rawCutoff
+        ? since
+        : rawCutoff;
+
+    const aggregateSince =
+      startOfNextCompleteUtcDay(since);
+
+    const rawWhere: Prisma.AIRuntimeEventWhereInput = {
       createdAt: {
-        gte: since,
+        gte: rawSince,
+      },
+      ...(provider
+        ? {
+            resolvedProvider:
+              provider,
+          }
+        : {}),
+      ...(successValue
+        ? {
+            success:
+              successValue === "true",
+          }
+        : {}),
+      ...(operation
+        ? {
+            operation: {
+              contains: operation,
+            },
+          }
+        : {}),
+    };
+
+    const aggregateWhere: Prisma.AIRuntimeDailyAggregateWhereInput = {
+      bucketStart: {
+        gte: aggregateSince,
+        lt: rawCutoff,
       },
       ...(provider
         ? {
@@ -221,22 +334,24 @@ export async function GET(
       (page - 1) * limit;
 
     const failedWhere: Prisma.AIRuntimeEventWhereInput = {
-      ...where,
+      ...rawWhere,
       success: false,
     };
 
     const [
       events,
-      totalCount,
-      successfulRequests,
-      fallbackCount,
-      totals,
-      providerGroups,
-      providerSuccessGroups,
+      rawTotalCount,
+      rawFallbackCount,
+      rawTotals,
+      rawSuccessGroups,
+      rawProviderGroups,
+      rawProviderSuccessGroups,
       errorSample,
+      aggregateTotals,
+      aggregateProviderGroups,
     ] = await Promise.all([
       prisma.aIRuntimeEvent.findMany({
-        where,
+        where: rawWhere,
         orderBy: {
           createdAt: "desc",
         },
@@ -244,30 +359,31 @@ export async function GET(
         take: limit,
       }),
       prisma.aIRuntimeEvent.count({
-        where,
+        where: rawWhere,
       }),
       prisma.aIRuntimeEvent.count({
         where: {
-          ...where,
-          success: true,
-        },
-      }),
-      prisma.aIRuntimeEvent.count({
-        where: {
-          ...where,
+          ...rawWhere,
           usedFallback: true,
         },
       }),
       prisma.aIRuntimeEvent.aggregate({
-        where,
+        where: rawWhere,
         _sum: {
           latencyMs: true,
           attemptCount: true,
         },
       }),
       prisma.aIRuntimeEvent.groupBy({
+        by: ["success"],
+        where: rawWhere,
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.aIRuntimeEvent.groupBy({
         by: ["resolvedProvider"],
-        where,
+        where: rawWhere,
         _count: {
           _all: true,
         },
@@ -280,7 +396,7 @@ export async function GET(
           "resolvedProvider",
           "success",
         ],
-        where,
+        where: rawWhere,
         _count: {
           _all: true,
         },
@@ -304,39 +420,137 @@ export async function GET(
         take:
           MAX_ERROR_SAMPLE_SIZE,
       }),
+      prisma.aIRuntimeDailyAggregate.aggregate({
+        where: aggregateWhere,
+        _sum: {
+          requestCount: true,
+          successCount: true,
+          failureCount: true,
+          fallbackCount: true,
+          totalAttempts: true,
+          totalLatencyMs: true,
+        },
+      }),
+      prisma.aIRuntimeDailyAggregate.groupBy({
+        by: ["resolvedProvider"],
+        where: aggregateWhere,
+        _sum: {
+          requestCount: true,
+          successCount: true,
+          failureCount: true,
+          totalLatencyMs: true,
+        },
+      }),
     ]);
 
+    const rawSuccessfulRequests =
+      rawSuccessGroups.find(
+        (group) => group.success,
+      )?._count._all || 0;
+
+    const rawFailedRequests =
+      rawSuccessGroups.find(
+        (group) => !group.success,
+      )?._count._all || 0;
+
+    const aggregateRequestCount =
+      aggregateTotals._sum.requestCount || 0;
+
+    const aggregateSuccessfulRequests =
+      aggregateTotals._sum.successCount || 0;
+
+    const aggregateFailedRequests =
+      aggregateTotals._sum.failureCount || 0;
+
+    const aggregateFallbackCount =
+      aggregateTotals._sum.fallbackCount || 0;
+
+    const totalCount =
+      rawTotalCount +
+      aggregateRequestCount;
+
+    const successfulRequests =
+      rawSuccessfulRequests +
+      aggregateSuccessfulRequests;
+
     const failedRequests =
-      totalCount -
-      successfulRequests;
+      rawFailedRequests +
+      aggregateFailedRequests;
+
+    const fallbackCount =
+      rawFallbackCount +
+      aggregateFallbackCount;
 
     const totalLatency =
-      totals._sum.latencyMs || 0;
+      (rawTotals._sum.latencyMs || 0) +
+      (aggregateTotals._sum.totalLatencyMs || 0);
 
     const totalAttempts =
-      totals._sum.attemptCount || 0;
+      (rawTotals._sum.attemptCount || 0) +
+      (aggregateTotals._sum.totalAttempts || 0);
 
     const providerBreakdown =
       PROVIDER_NAMES.map(
         (providerName) => {
-          const totalsForProvider =
-            providerGroups.find(
+          const rawTotalsForProvider =
+            rawProviderGroups.find(
               (item) =>
                 item.resolvedProvider ===
                 providerName,
             );
 
-          const requestCount =
-            totalsForProvider?._count._all ||
+          const aggregateTotalsForProvider =
+            aggregateProviderGroups.find(
+              (item) =>
+                item.resolvedProvider ===
+                providerName,
+            );
+
+          const rawProviderRequestCount =
+            rawTotalsForProvider?._count._all ||
             0;
 
-          const successfulForProvider =
-            providerSuccessGroups.find(
+          const aggregateProviderRequestCount =
+            aggregateTotalsForProvider?._sum
+              .requestCount || 0;
+
+          const requestCount =
+            rawProviderRequestCount +
+            aggregateProviderRequestCount;
+
+          const rawSuccessfulForProvider =
+            rawProviderSuccessGroups.find(
               (item) =>
                 item.resolvedProvider ===
                   providerName &&
                 item.success,
             )?._count._all || 0;
+
+          const aggregateSuccessfulForProvider =
+            aggregateTotalsForProvider?._sum
+              .successCount || 0;
+
+          const successfulForProvider =
+            rawSuccessfulForProvider +
+            aggregateSuccessfulForProvider;
+
+          const rawFailedForProvider =
+            rawProviderRequestCount -
+            rawSuccessfulForProvider;
+
+          const aggregateFailedForProvider =
+            aggregateTotalsForProvider?._sum
+              .failureCount || 0;
+
+          const failedForProvider =
+            rawFailedForProvider +
+            aggregateFailedForProvider;
+
+          const providerLatency =
+            (rawTotalsForProvider?._sum
+              .latencyMs || 0) +
+            (aggregateTotalsForProvider?._sum
+              .totalLatencyMs || 0);
 
           return {
             provider:
@@ -345,8 +559,7 @@ export async function GET(
             successfulRequests:
               successfulForProvider,
             failedRequests:
-              requestCount -
-              successfulForProvider,
+              failedForProvider,
             successRate:
               requestCount === 0
                 ? 0
@@ -359,8 +572,7 @@ export async function GET(
               requestCount === 0
                 ? 0
                 : Math.round(
-                    (totalsForProvider?._sum
-                      .latencyMs || 0) /
+                    providerLatency /
                       requestCount,
                   ),
           };
@@ -487,10 +699,10 @@ export async function GET(
       }));
 
     const totalPages =
-      totalCount === 0
+      rawTotalCount === 0
         ? 0
         : Math.ceil(
-            totalCount / limit,
+            rawTotalCount / limit,
           );
 
     return NextResponse.json({
@@ -509,10 +721,19 @@ export async function GET(
           operation || null,
         since:
           since.toISOString(),
+        rawRetentionDays,
+        rawCutoff:
+          rawCutoff.toISOString(),
+        aggregateSince:
+          aggregateSince.toISOString(),
       },
       summary: {
         totalMatchingEvents:
           totalCount,
+        rawMatchingEvents:
+          rawTotalCount,
+        aggregatedMatchingEvents:
+          aggregateRequestCount,
         returnedEvents:
           events.length,
         successfulRequests,
@@ -555,7 +776,7 @@ export async function GET(
         page,
         limit,
         totalItems:
-          totalCount,
+          rawTotalCount,
         totalPages,
         hasNextPage:
           page < totalPages,
