@@ -29,7 +29,7 @@ type ApiErrorResponse = {
   details?: string;
   mode: ApiMode;
   aiProvider: AiProvider;
-  storageMode: "sqlite_prisma_ready";
+  storageMode: "postgres_prisma_ready";
 };
 
 type AiOptimizationJson = {
@@ -103,7 +103,7 @@ function createErrorResponse(
     details,
     mode,
     aiProvider,
-    storageMode: "sqlite_prisma_ready",
+    storageMode: "postgres_prisma_ready",
   };
 
   return NextResponse.json(payload, {
@@ -906,7 +906,7 @@ export async function GET() {
     mode,
     aiProvider,
     openAiModel: providerModel,
-    storageMode: "sqlite_prisma_ready",
+    storageMode: "postgres_prisma_ready",
     message,
     supportedMethods: [
       "GET",
@@ -1152,7 +1152,7 @@ Optimized Target Output:
       openAiModel: aiModel,
       fewShotsCount,
       storageMode:
-        "sqlite_prisma_ready",
+        "postgres_prisma_ready",
       engineStatus:
         mode === "real_ai"
           ? "real_ai"

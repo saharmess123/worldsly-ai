@@ -87,7 +87,7 @@ function formatFeedbackItem(
         ? "openai"
         : "mock",
     storageMode:
-      "sqlite_prisma",
+      "postgres_prisma",
     createdAt:
       item.createdAt.toLocaleString(),
   };
@@ -134,7 +134,7 @@ export async function GET() {
       needsWorkCount,
       usefulRate,
       storageMode:
-        "sqlite_prisma",
+        "postgres_prisma",
       message:
         "Feedback loaded successfully from SQLite using Prisma.",
       note:
@@ -150,7 +150,7 @@ export async function GET() {
       "Something went wrong while loading feedback.",
       {
         storageMode:
-          "sqlite_prisma",
+          "postgres_prisma",
       }
     );
   }
@@ -174,7 +174,7 @@ export async function POST(
             "INVALID_JSON_BODY",
           extra: {
             storageMode:
-              "sqlite_prisma",
+              "postgres_prisma",
           },
         }
       );
@@ -193,7 +193,7 @@ export async function POST(
             "INVALID_FEEDBACK_RATING",
           extra: {
             storageMode:
-              "sqlite_prisma",
+              "postgres_prisma",
           },
         }
       );
@@ -213,7 +213,7 @@ export async function POST(
             "IMPROVED_PROMPT_REQUIRED",
           extra: {
             storageMode:
-              "sqlite_prisma",
+              "postgres_prisma",
           },
         }
       );
@@ -268,7 +268,7 @@ export async function POST(
           item
         ),
       storageMode:
-        "sqlite_prisma",
+        "postgres_prisma",
       message:
         "Feedback saved successfully to SQLite.",
     });
@@ -282,7 +282,7 @@ export async function POST(
       "Something went wrong while saving feedback.",
       {
         storageMode:
-          "sqlite_prisma",
+          "postgres_prisma",
       }
     );
   }
@@ -314,7 +314,7 @@ export async function DELETE(
             "Feedback record deleted.",
           deletedId: id,
           storageMode:
-            "sqlite_prisma",
+            "postgres_prisma",
         });
       } catch {
        return apiError(
@@ -324,7 +324,7 @@ export async function DELETE(
     code: "FEEDBACK_NOT_FOUND",
     extra: {
       deletedId: id,
-      storageMode: "sqlite_prisma",
+      storageMode: "postgres_prisma",
     },
   }
 );
@@ -342,7 +342,7 @@ export async function DELETE(
         result.count,
       count: 0,
       storageMode:
-        "sqlite_prisma",
+        "postgres_prisma",
     });
   } catch (error) {
     console.error(
@@ -354,7 +354,7 @@ export async function DELETE(
       "Something went wrong while deleting feedback.",
       {
         storageMode:
-          "sqlite_prisma",
+          "postgres_prisma",
       }
     );
   }

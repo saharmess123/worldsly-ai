@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
@@ -104,7 +104,7 @@ const initialApis: ApiStatus[] = [
       "Returns useful feedback rate",
       "Returns average score gain",
       "Returns latest optimization and feedback records",
-      "Powered by SQLite + Prisma",
+      "Powered by PostgreSQL + Prisma",
     ],
     checkMode: "live",
   },
@@ -139,8 +139,8 @@ function getStatusClasses(status: ApiStatusValue) {
 }
 
 function getStorageLabel(storageMode?: string) {
-  if (storageMode === "sqlite_prisma") return "SQLite + Prisma";
-  if (storageMode === "sqlite_prisma_ready") return "SQLite + Prisma Ready";
+  if (storageMode === "postgres_prisma") return "PostgreSQL + Prisma";
+  if (storageMode === "postgres_prisma_ready") return "PostgreSQL + Prisma Ready";
   if (storageMode === "documented") return "Documented Route";
   if (storageMode === "mock_api") return "Mock API";
   if (storageMode) return storageMode;
@@ -240,8 +240,8 @@ export default function ApiStatusPage() {
         } else if (isOptimizeRoute && data.mode === "mock") {
           message =
             "Optimizer is online, but mock mode is active because OpenAI key is missing or unavailable.";
-        } else if (data.storageMode === "sqlite_prisma" || isSqliteRoute) {
-          message = "API is working correctly with SQLite + Prisma persistence.";
+        } else if (data.storageMode === "postgres_prisma" || isSqliteRoute) {
+          message = "API is working correctly with PostgreSQL + Prisma persistence.";
         }
 
         results.push({
@@ -250,7 +250,7 @@ export default function ApiStatusPage() {
           message,
           responseTime,
           storageMode:
-            data.storageMode || (isSqliteRoute ? "sqlite_prisma" : "mock_api"),
+            data.storageMode || (isSqliteRoute ? "postgres_prisma" : "mock_api"),
           mode: data.mode,
           aiProvider: data.aiProvider,
           openAiModel: data.openAiModel,
@@ -286,8 +286,8 @@ export default function ApiStatusPage() {
 
   const sqliteCount = apis.filter(
     (api) =>
-      api.storageMode === "sqlite_prisma" ||
-      api.storageMode === "sqlite_prisma_ready"
+      api.storageMode === "postgres_prisma" ||
+      api.storageMode === "postgres_prisma_ready"
   ).length;
 
   const optimizeApi = apis.find((api) => api.route === "/api/optimize");
@@ -322,7 +322,7 @@ export default function ApiStatusPage() {
               This page checks optimizer, scoring, history, feedback, analytics,
               and demo routes. The optimizer now supports OpenAI real AI mode
               with safe mock fallback, while history, feedback, and analytics use
-              SQLite + Prisma persistence.
+              PostgreSQL + Prisma persistence.
             </p>
 
             <div className="mt-6 grid gap-4 md:grid-cols-4">
@@ -330,7 +330,7 @@ export default function ApiStatusPage() {
                 <p className="text-sm font-black text-blue-500">
                   Storage Mode
                 </p>
-                <h3 className="mt-2 text-2xl font-black">SQLite + Prisma</h3>
+                <h3 className="mt-2 text-2xl font-black">PostgreSQL + Prisma</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">
                   History, feedback, and analytics use real database
                   persistence.

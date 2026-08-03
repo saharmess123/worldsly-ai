@@ -74,7 +74,7 @@ function formatOptimizationItem(
       item.engineStatus === "real_ai"
         ? "openai"
         : "mock",
-    storageMode: "sqlite_prisma",
+    storageMode: "postgres_prisma",
     createdAt:
       item.createdAt.toISOString(),
   };
@@ -106,7 +106,7 @@ function formatFeedbackItem(
       item.engineStatus === "real_ai"
         ? "openai"
         : "mock",
-    storageMode: "sqlite_prisma",
+    storageMode: "postgres_prisma",
     createdAt:
       item.createdAt.toISOString(),
   };
@@ -476,7 +476,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       storageMode:
-        "sqlite_prisma",
+        "postgres_prisma",
       message:
         "Pipeline analytics loaded successfully from SQLite using Prisma.",
 
@@ -706,7 +706,7 @@ export async function GET() {
         code: "ANALYTICS_LOAD_FAILED",
         extra: {
           storageMode:
-            "sqlite_prisma",
+            "postgres_prisma",
         },
       }
     );

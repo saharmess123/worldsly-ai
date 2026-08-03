@@ -167,7 +167,7 @@ export default function DashboardPage() {
       } else {
         // Fallback to default demo analytics if admin permission restricted
         setGlobalAnalytics({
-          storageMode: "sqlite_prisma",
+          storageMode: "postgres_prisma",
           totals: {
             totalOptimizations: 24,
             totalFeedback: 18,

@@ -66,7 +66,7 @@ type AnalyticsResponse = {
 };
 
 const emptyAnalytics: AnalyticsResponse = {
-  storageMode: "sqlite_prisma",
+  storageMode: "postgres_prisma",
   totals: {
     totalOptimizations: 0,
     totalFeedback: 0,
@@ -89,7 +89,7 @@ export default function MockDatabasePage() {
   const [feedbackCount, setFeedbackCount] = useState(0);
   const [usefulCount, setUsefulCount] = useState(0);
   const [needsWorkCount, setNeedsWorkCount] = useState(0);
-  const [storageMode, setStorageMode] = useState("sqlite_prisma");
+  const [storageMode, setStorageMode] = useState("postgres_prisma");
   const [lastLoaded, setLastLoaded] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
@@ -144,7 +144,7 @@ export default function MockDatabasePage() {
         analyticsData.storageMode ||
           historyData.storageMode ||
           feedbackData.storageMode ||
-          "sqlite_prisma"
+          "postgres_prisma"
       );
 
       setLastLoaded(new Date().toLocaleString());

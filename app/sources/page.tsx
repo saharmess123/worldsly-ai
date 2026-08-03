@@ -179,7 +179,7 @@ export default function SourcesPage() {
   ] = useState("manual");
 
   const [storageMode, setStorageMode] =
-    useState("sqlite_prisma");
+    useState("postgres_prisma");
 
   const [isLoading, setIsLoading] =
     useState(true);
@@ -238,7 +238,7 @@ export default function SourcesPage() {
 
       setStorageMode(
         data.storageMode ||
-          "sqlite_prisma"
+          "postgres_prisma"
       );
 
       setScanStatuses((current) => {

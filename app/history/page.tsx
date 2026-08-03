@@ -55,7 +55,7 @@ export default function HistoryPage() {
       }
 
       setHistory(data.items || []);
-      setStorageMode(data.storageMode || "sqlite_prisma");
+      setStorageMode(data.storageMode || "postgres_prisma");
     } catch {
       setError("Could not load history from SQLite.");
     } finally {
