@@ -109,8 +109,8 @@ function safeParseArray<T>(value: string | null): T[] {
 }
 
 function formatStorageMode(storageMode?: string) {
-  if (storageMode === "sqlite_prisma_ready") return "SQLite + Prisma Ready";
-  if (storageMode === "sqlite_prisma") return "SQLite + Prisma";
+  if (storageMode === "postgres_prisma_ready") return "PostgreSQL + Prisma Ready";
+  if (storageMode === "postgres_prisma") return "PostgreSQL + Prisma";
   if (storageMode === "mock_api") return "Mock API";
   return storageMode || "Not provided";
 }
@@ -263,7 +263,7 @@ export default function PromptOptimizerPage() {
           engineStatus: result.engineStatus || "mock_api",
           mode: result.mode || "mock",
           aiProvider: result.aiProvider || "mock",
-          storageMode: result.storageMode || "sqlite_prisma_ready",
+          storageMode: result.storageMode || "postgres_prisma_ready",
         }),
       });
 
@@ -326,7 +326,7 @@ export default function PromptOptimizerPage() {
           engineStatus: result.engineStatus || "mock_api",
           mode: result.mode || "mock",
           aiProvider: result.aiProvider || "mock",
-          storageMode: result.storageMode || "sqlite_prisma_ready",
+          storageMode: result.storageMode || "postgres_prisma_ready",
         }),
       });
 

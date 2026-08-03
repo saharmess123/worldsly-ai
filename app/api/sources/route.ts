@@ -170,7 +170,7 @@ function formatSourceItem(
       item.updatedAt.toISOString(),
 
     storageMode:
-      "sqlite_prisma",
+      "postgres_prisma",
   };
 }
 
@@ -265,7 +265,7 @@ export async function GET() {
       averageCredibility,
       totalDiscoveredPrompts,
       storageMode:
-        "sqlite_prisma",
+        "postgres_prisma",
       message:
         "Sources loaded successfully.",
     });
@@ -313,7 +313,7 @@ export async function POST(
           error:
             "Invalid JSON body.",
           storageMode:
-            "sqlite_prisma",
+            "postgres_prisma",
         },
         {
           status: 400,
@@ -445,7 +445,7 @@ export async function POST(
           error:
             "Source name is required.",
           storageMode:
-            "sqlite_prisma",
+            "postgres_prisma",
         },
         {
           status: 400,
@@ -520,7 +520,7 @@ export async function POST(
             item,
           ),
         storageMode:
-          "sqlite_prisma",
+          "postgres_prisma",
         message:
           "Source created successfully.",
       },
@@ -585,7 +585,7 @@ export async function DELETE(
             deletedId:
               id,
             storageMode:
-              "sqlite_prisma",
+              "postgres_prisma",
           },
           {
             status: 404,
@@ -606,7 +606,7 @@ export async function DELETE(
         deletedId:
           id,
         storageMode:
-          "sqlite_prisma",
+          "postgres_prisma",
       });
     }
 
@@ -622,7 +622,7 @@ export async function DELETE(
       count:
         0,
       storageMode:
-        "sqlite_prisma",
+        "postgres_prisma",
     });
   } catch (error) {
     console.error(

@@ -649,7 +649,7 @@ export default function DatabaseSetupPage() {
 
         <div className="rounded-[2.5rem] bg-slate-950 p-8 text-center text-white shadow-2xl shadow-blue-500/20">
           <h2 className="mx-auto max-w-3xl text-4xl font-black leading-tight">
-            Recommended next move: SQLite + Prisma for local MVP persistence.
+            Recommended next move: PostgreSQL + Prisma for local MVP persistence.
           </h2>
 
           <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-slate-300">

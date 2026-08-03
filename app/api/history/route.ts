@@ -71,7 +71,7 @@ function formatHistoryItem(item: {
     engineStatus: item.engineStatus,
     mode: item.engineStatus === "real_ai" ? "real" : "mock",
     aiProvider: item.engineStatus === "real_ai" ? "openai" : "mock",
-    storageMode: "sqlite_prisma",
+    storageMode: "postgres_prisma",
     createdAt: item.createdAt.toLocaleString(),
   };
 }
@@ -88,7 +88,7 @@ export async function GET() {
       success: true,
       items: items.map(formatHistoryItem),
       count: items.length,
-      storageMode: "sqlite_prisma",
+      storageMode: "postgres_prisma",
       message: "History loaded successfully from SQLite using Prisma.",
       note: "This data is stored in SQLite using Prisma. It stays after server restart.",
     });
@@ -98,7 +98,7 @@ export async function GET() {
     return internalServerError(
       "Something went wrong while loading history.",
       {
-        storageMode: "sqlite_prisma",
+        storageMode: "postgres_prisma",
       }
     );
   }
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
         status: 400,
         code: "INVALID_JSON_BODY",
         extra: {
-          storageMode: "sqlite_prisma",
+          storageMode: "postgres_prisma",
         },
       });
     }
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
         status: 400,
         code: "OUTPUT_REQUIRED",
         extra: {
-          storageMode: "sqlite_prisma",
+          storageMode: "postgres_prisma",
         },
       });
     }
@@ -162,7 +162,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       item: formatHistoryItem(item),
-      storageMode: "sqlite_prisma",
+      storageMode: "postgres_prisma",
       message:
         "Optimization saved successfully to SQLite history.",
     });
@@ -172,7 +172,7 @@ export async function POST(request: Request) {
     return internalServerError(
       "Something went wrong while saving history.",
       {
-        storageMode: "sqlite_prisma",
+        storageMode: "postgres_prisma",
       }
     );
   }
@@ -195,7 +195,7 @@ export async function DELETE(request: Request) {
           success: true,
           message: "History record deleted.",
           deletedId: id,
-          storageMode: "sqlite_prisma",
+          storageMode: "postgres_prisma",
         });
       } catch {
         return apiError("History record not found.", {
@@ -203,7 +203,7 @@ export async function DELETE(request: Request) {
           code: "HISTORY_RECORD_NOT_FOUND",
           extra: {
             deletedId: id,
-            storageMode: "sqlite_prisma",
+            storageMode: "postgres_prisma",
           },
         });
       }
@@ -216,7 +216,7 @@ export async function DELETE(request: Request) {
       message: "All database history cleared.",
       deletedCount: result.count,
       count: 0,
-      storageMode: "sqlite_prisma",
+      storageMode: "postgres_prisma",
     });
   } catch (error) {
     console.error("History DELETE error:", error);
@@ -224,7 +224,7 @@ export async function DELETE(request: Request) {
     return internalServerError(
       "Something went wrong while deleting history.",
       {
-        storageMode: "sqlite_prisma",
+        storageMode: "postgres_prisma",
       }
     );
   }
